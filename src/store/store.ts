@@ -69,12 +69,16 @@ CREATE TABLE IF NOT EXISTS meta (
 /** Columns added after 0.1.0; applied to existing databases on open. */
 const MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "files", column: "source", ddl: "ALTER TABLE files ADD COLUMN source TEXT NOT NULL DEFAULT 'canvas'" },
+  { table: "files", column: "remote_url", ddl: "ALTER TABLE files ADD COLUMN remote_url TEXT NOT NULL DEFAULT ''" },
 ];
 
 export type TextStatus = "" | "ok" | "empty" | "unsupported" | "too_large" | "error";
 
-/** "canvas" files mirror the LMS; "import" files were added by `openlms import`. */
-export type FileSource = "canvas" | "import";
+/**
+ * "canvas" files mirror the LMS; "learningx" files mirror LearningX PDFs
+ * (`sync --learningx`); "import" files were added by `openlms import`.
+ */
+export type FileSource = "canvas" | "learningx" | "import";
 
 export interface Course {
   id: number;
@@ -95,6 +99,8 @@ export interface FileRow {
   localPath: string;
   textStatus: TextStatus;
   source?: FileSource;
+  /** LearningX viewer URL the file is downloaded from. */
+  remoteUrl?: string;
 }
 
 /** An external-tool module item (LearningX content) that can only be opened in a browser. */
@@ -148,7 +154,7 @@ type Row = Record<string, unknown>;
 const nowIso = () => new Date().toISOString();
 
 const FILE_SELECT = `SELECT f.id, f.course_id, COALESCE(c.name, '') AS course_name, f.name, f.content_type,
-  f.size, f.updated_at, f.local_path, f.text_status, f.source
+  f.size, f.updated_at, f.local_path, f.text_status, f.source, f.remote_url
   FROM files f LEFT JOIN courses c ON c.id = f.course_id`;
 
 function toFile(r: Row): FileRow {
@@ -163,6 +169,7 @@ function toFile(r: Row): FileRow {
     localPath: String(r.local_path),
     textStatus: String(r.text_status) as TextStatus,
     source: String(r.source) as FileSource,
+    remoteUrl: String(r.remote_url ?? ""),
   };
 }
 
@@ -265,24 +272,25 @@ export class Store {
   upsertFile(f: FileRow): void {
     this.db
       .prepare(
-        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, source, synced_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, source, remote_url, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET course_id = excluded.course_id, name = excluded.name,
            content_type = excluded.content_type, size = excluded.size, updated_at = excluded.updated_at,
            local_path = excluded.local_path, text_status = excluded.text_status, source = excluded.source,
-           synced_at = excluded.synced_at`,
+           remote_url = excluded.remote_url, synced_at = excluded.synced_at`,
       )
-      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, f.source ?? "canvas", nowIso());
+      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, f.source ?? "canvas", f.remoteUrl ?? "", nowIso());
   }
 
   /**
-   * Removes cached Canvas files of a course not in `keep`; returns their
-   * local paths. Imported files are never pruned by a Canvas refresh.
+   * Removes cached files of one source in a course that are not in `keep`;
+   * returns their local paths. Other sources are left alone, so a Canvas
+   * refresh never drops LearningX or imported files.
    */
-  pruneFiles(courseId: number, keep: Set<number>): string[] {
+  pruneFiles(courseId: number, keep: Set<number>, source: FileSource = "canvas"): string[] {
     const removed: string[] = [];
     for (const f of this.files(courseId)) {
-      if (keep.has(f.id) || f.source === "import") {
+      if (keep.has(f.id) || f.source !== source) {
         continue;
       }
       this.deleteFile(f.id);

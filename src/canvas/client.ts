@@ -74,7 +74,7 @@ export function nextLink(header: string | null): string | undefined {
 
 export class CanvasClient {
   readonly base: URL;
-  private readonly opts: ClientOptions;
+  readonly opts: ClientOptions;
   private lastRequestAt = 0;
 
   constructor(

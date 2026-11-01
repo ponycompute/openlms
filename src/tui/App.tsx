@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { displayWidth, formatBytes, formatDue, truncate } from "../cli/format.js";
+import { displayWidth, fileLabel, formatBytes, formatDue, truncate } from "../cli/format.js";
 import type { Lms } from "../lms.js";
 import type { Announcement, Assignment, Course, FileRow, Link, SearchHit } from "../store/store.js";
 import { openUrl } from "./open-url.js";
@@ -189,7 +189,7 @@ export function App({ lms }: { lms: Lms }) {
         const { files, links } = courseData.data as Materials;
         const fileItems: ListItem[] = files.map((f) => ({
           key: `f${f.id}`,
-          label: f.source === "import" ? `${f.name} (가져옴)` : f.name,
+          label: fileLabel(f),
           hint: `${formatBytes(f.size)} · ${f.textStatus || "미동기화"}`,
           color: f.textStatus === "ok" ? undefined : "gray",
           open: () => openMaterial(f.id),

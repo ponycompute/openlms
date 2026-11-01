@@ -8,6 +8,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { CanvasApi, type CanvasAnnouncement, type CanvasAssignment, type CanvasCourse, type CanvasFile } from "./canvas/api.js";
 import { CanvasClient, CanvasError, type ClientOptions } from "./canvas/client.js";
 import { KeychainCredentialStore, type CredentialStore } from "./auth/credentials.js";
+import { LearningX, type LearningXPdf } from "./learningx/learningx.js";
 import { extractKind, extractText, htmlToText, isEffectivelyEmpty } from "./extract/extract.js";
 import { dbPath, lmsHome, localFilePath } from "./paths.js";
 import {
@@ -35,6 +36,8 @@ export interface SyncOptions {
   courseId?: number;
   /** Fetch file metadata only, no downloads. */
   metadataOnly?: boolean;
+  /** Also mirror LearningX PDFs (opt-in). */
+  learningx?: boolean;
   onProgress?: (message: string) => void;
   signal?: AbortSignal;
 }
@@ -42,6 +45,8 @@ export interface SyncOptions {
 export interface SyncReport {
   courses: number;
   filesTotal: number;
+  /** LearningX PDFs found (included in filesTotal). */
+  learningx: number;
   downloaded: number;
   skipped: number;
   indexed: number;
@@ -110,6 +115,14 @@ export function importedFileId(courseId: number, absolutePath: string): number {
   return -(digest.readUInt32BE(0) || 1);
 }
 
+/**
+ * LearningX files get IDs below every imported-file ID (which stay within
+ * -(2^32 - 1)..-1), derived from the LearningX module item ID.
+ */
+export function learningxFileId(itemId: number): number {
+  return -(2 ** 32 + itemId);
+}
+
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -122,6 +135,7 @@ export class Lms {
   private readonly maxFileBytes: number;
   private readonly announcementDays: number;
   private apiPromise?: Promise<CanvasApi>;
+  private learningxClient?: LearningX;
 
   constructor(opts: LmsOptions = {}) {
     this.home = opts.home ?? lmsHome();
@@ -145,6 +159,11 @@ export class Lms {
       this.apiPromise = undefined;
     });
     return this.apiPromise;
+  }
+
+  private async learningx(): Promise<LearningX> {
+    this.learningxClient ??= new LearningX((await this.api()).client);
+    return this.learningxClient;
   }
 
   // ---- cache-first reads ----
@@ -203,7 +222,10 @@ export class Lms {
     let file = this.store.file(fileId);
     let text = this.store.text(fileId);
     const needsFetch = !file || file.textStatus === "" || (text === undefined && file.textStatus === "error");
-    if (needsFetch && file?.source !== "import") {
+    if (needsFetch && file?.source === "learningx") {
+      file = await this.fetchLearningXPdf(file);
+      text = this.store.text(fileId);
+    } else if (needsFetch && file?.source !== "import") {
       const api = await this.api();
       const meta = await api.file(fileId);
       const courseId = file?.courseId ?? 0;
@@ -355,6 +377,93 @@ export class Lms {
     return file;
   }
 
+  /**
+   * Mirrors a course's LearningX PDFs: new or changed items are downloaded
+   * and indexed, items no longer listed are removed.
+   */
+  private async syncLearningX(courseId: number, report: SyncReport, opts: SyncOptions, log: (m: string) => void): Promise<void> {
+    const pdfs = await (await this.learningx()).pdfs(courseId, opts.signal);
+    if (!pdfs) {
+      return;
+    }
+    report.learningx += pdfs.length;
+    report.filesTotal += pdfs.length;
+    const keep = new Set<number>();
+    for (const pdf of pdfs) {
+      const id = learningxFileId(pdf.itemId);
+      keep.add(id);
+      const prev = this.store.file(id);
+      const unchanged =
+        prev &&
+        prev.updatedAt === pdf.updatedAt &&
+        prev.textStatus !== "" &&
+        prev.textStatus !== "error" &&
+        (prev.textStatus === "too_large" || (prev.localPath !== "" && existsSync(prev.localPath)));
+      const row = this.learningxRow(courseId, pdf, unchanged ? prev : undefined);
+      this.store.upsertFile(row);
+      if (unchanged || opts.metadataOnly) {
+        report.skipped += unchanged ? 1 : 0;
+        continue;
+      }
+      log(`  ↓ ${pdf.fileName} (LearningX)`);
+      try {
+        const fetched = await this.fetchLearningXPdf(row, opts.signal);
+        if (fetched.localPath) {
+          report.downloaded++;
+        }
+        if (fetched.textStatus === "ok") {
+          report.indexed++;
+        }
+      } catch (err) {
+        report.errors.push(`LearningX / ${pdf.fileName}: ${message(err)}`);
+      }
+    }
+    const removed = this.store.pruneFiles(courseId, keep, "learningx");
+    report.removed += removed.length;
+    for (const path of removed) {
+      await rm(path, { force: true });
+    }
+  }
+
+  private learningxRow(courseId: number, pdf: LearningXPdf, prev?: FileRow): FileRow {
+    return {
+      id: learningxFileId(pdf.itemId),
+      courseId,
+      name: pdf.fileName,
+      contentType: "application/pdf",
+      size: prev?.size ?? 0,
+      updatedAt: pdf.updatedAt,
+      localPath: prev?.localPath ?? "",
+      // Pending until downloaded, so readers fetch it on demand.
+      textStatus: prev?.textStatus ?? "",
+      source: "learningx",
+      remoteUrl: pdf.viewUrl,
+    };
+  }
+
+  /** Downloads one LearningX PDF, extracts and indexes its text. */
+  private async fetchLearningXPdf(file: FileRow, signal?: AbortSignal): Promise<FileRow> {
+    const data = await (await this.learningx()).downloadPdf(file.remoteUrl ?? "", signal);
+    const row: FileRow = { ...file, size: data.length, localPath: "", textStatus: "" };
+    if (data.length > this.maxFileBytes) {
+      row.textStatus = "too_large";
+      this.store.upsertFile(row);
+      return row;
+    }
+    row.localPath = localFilePath(this.home, file.courseId, file.id, file.name);
+    await mkdir(dirname(row.localPath), { recursive: true, mode: 0o700 });
+    await writeFile(row.localPath, data, { mode: 0o600 });
+    try {
+      const text = await extractText("pdf", data);
+      row.textStatus = isEffectivelyEmpty(text) ? "empty" : "ok";
+      this.store.setText(file.id, file.courseId, file.name, text);
+    } catch {
+      row.textStatus = "error";
+    }
+    this.store.upsertFile(row);
+    return row;
+  }
+
   /** Downloads one file, extracts and indexes its text, and records it. */
   private async fetchAndIndex(f: CanvasFile, courseIdHint: number, signal?: AbortSignal): Promise<FileRow> {
     const api = await this.api();
@@ -404,6 +513,7 @@ export class Lms {
     const report: SyncReport = {
       courses: 0,
       filesTotal: 0,
+      learningx: 0,
       downloaded: 0,
       skipped: 0,
       indexed: 0,
@@ -428,7 +538,7 @@ export class Lms {
       }
       log(`[${course.name}] listing files…`);
       try {
-        const before = new Set(this.store.files(course.id).filter((f) => f.source !== "import").map((f) => f.id));
+        const before = new Set(this.store.files(course.id).filter((f) => f.source === "canvas").map((f) => f.id));
         const previous = new Map(this.store.files(course.id).map((f) => [f.id, f]));
         const files = await this.refreshFileList(course.id, opts.signal);
         report.removed += [...before].filter((id) => !files.some((f) => f.id === id)).length;
@@ -462,6 +572,17 @@ export class Lms {
               }
               report.errors.push(`${course.name} / ${f.display_name}: ${message(err)}`);
             }
+          }
+        }
+        if (opts.learningx) {
+          log(`[${course.name}] LearningX…`);
+          try {
+            await this.syncLearningX(course.id, report, opts, log);
+          } catch (err) {
+            if (isFatal(err)) {
+              throw err;
+            }
+            report.errors.push(`${course.name} / LearningX: ${message(err)}`);
           }
         }
         log(`[${course.name}] assignments…`);

@@ -2,7 +2,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { KeychainCredentialStore, NotLoggedInError } from "./auth/credentials.js";
 import { CanvasApi } from "./canvas/api.js";
 import { CanvasClient, CanvasError, normalizeBaseUrl } from "./canvas/client.js";
-import { formatBytes, formatDue, table } from "./cli/format.js";
+import { fileLabel, formatBytes, formatDue, table } from "./cli/format.js";
 import { ask, askSecret } from "./cli/prompt.js";
 import { Lms, type LmsOptions } from "./lms.js";
 import { VERSION } from "./version.js";
@@ -118,22 +118,24 @@ program
   .description("incrementally download files of active courses, extract text and index it")
   .option("--course <id>", "only sync this course", intArg)
   .option("--metadata-only", "fetch file lists without downloading")
+  .option("--learningx", "also download LearningX PDFs")
   .option("--max-size <MB>", "skip files larger than this", (v) => Number(v), 100)
   .option("--json", "output JSON report")
-  .action((opts: { course?: number; metadataOnly?: boolean; maxSize: number; json?: boolean }) =>
+  .action((opts: { course?: number; metadataOnly?: boolean; learningx?: boolean; maxSize: number; json?: boolean }) =>
     withLms(
       async (lms) => {
         const started = Date.now();
         const report = await lms.sync({
           courseId: opts.course,
           metadataOnly: opts.metadataOnly,
+          learningx: opts.learningx,
           onProgress: opts.json ? undefined : (m) => process.stderr.write(`${m}\n`),
         });
         print(opts.json, report, () => {
           const lines = [
             "",
             `✓ 동기화 완료 (${((Date.now() - started) / 1000).toFixed(1)}s)`,
-            `  과목 ${report.courses} · 파일 ${report.filesTotal} (다운로드 ${report.downloaded}, 변경 없음 ${report.skipped}, 삭제 ${report.removed})`,
+            `  과목 ${report.courses} · 파일 ${report.filesTotal}${opts.learningx ? ` (LearningX ${report.learningx} 포함)` : ""} (다운로드 ${report.downloaded}, 변경 없음 ${report.skipped}, 삭제 ${report.removed})`,
             `  텍스트 인덱싱 ${report.indexed} · 과제 ${report.assignments} · 공지 ${report.announcements}`,
           ];
           if (report.errors.length) {
@@ -181,7 +183,7 @@ program
                 files.map((f) => [
                   String(f.id),
                   f.courseName ?? "",
-                  f.source === "import" ? `${f.name} (가져옴)` : f.name,
+                  fileLabel(f),
                   formatBytes(f.size),
                   f.textStatus || "pending",
                 ]),

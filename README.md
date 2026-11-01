@@ -60,15 +60,23 @@ openlms sync
 
 ### LearningX 콘텐츠
 
-많은 학교가 강의자료를 Canvas 파일이 아니라 **LearningX 콘텐츠**(외부 도구)로 올립니다. 이 콘텐츠는 Canvas 토큰으로 받을 수 없기 때문에 OpenLMS는 **링크로만** 보여 줍니다 (`openlms files --course ID`, TUI 자료 탭, MCP `list_materials`). TUI에서는 `enter`로 브라우저에서 열 수 있습니다.
+많은 학교가 강의자료를 Canvas 파일이 아니라 **LearningX 콘텐츠**(외부 도구)로 올립니다. 기본적으로 OpenLMS는 이 콘텐츠를 **링크로** 보여 줍니다 (`openlms files --course ID`, TUI 자료 탭, MCP `list_materials`). TUI에서는 `enter`로 브라우저에서 열 수 있습니다.
 
-브라우저에서 받은 자료는 직접 가져와 다른 자료와 똑같이 검색·질문할 수 있습니다:
+`--learningx`를 주면 LearningX의 **PDF 강의자료**도 받아서 인덱싱합니다 (기본 꺼짐):
+
+```bash
+openlms sync --learningx
+```
+
+Canvas의 문서화된 `sessionless_launch` API로 LearningX를 실행해 LearningX 세션을 받고, 그 세션으로 강의 목록을 읽습니다. Canvas 토큰은 LearningX나 콘텐츠 서버로 보내지 않으며, 세션은 메모리에만 두고 저장하지 않습니다. 다만 LearningX의 API는 공개 문서가 없어 예고 없이 바뀔 수 있고, 학교 이용 약관은 직접 확인하세요. 영상과 잠긴 항목은 받지 않습니다. 받은 파일은 `(LearningX)`로 표시됩니다.
+
+`--learningx`로 받을 수 없는 자료(PPTX 등)는 브라우저에서 받아 직접 가져올 수 있습니다:
 
 ```bash
 openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하위까지, PDF/PPTX/DOCX/텍스트만
 ```
 
-가져온 파일은 음수 ID로 표시되고, Canvas 동기화로 지워지지 않습니다. 빼려면 `openlms unimport <fileId>`. 자세한 조사 내용은 [docs/learningx.md](docs/learningx.md)를 참고하세요.
+가져온 파일은 음수 ID로 표시되고, Canvas 동기화로 지워지지 않습니다. 빼려면 `openlms unimport <fileId>`.
 
 ## 명령
 
@@ -77,7 +85,7 @@ openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하�
 | `openlms login [--url URL]` | base URL·토큰 입력, 검증 후 키체인 저장 |
 | `openlms logout` | 키체인에서 자격 증명 삭제 |
 | `openlms status` | 로그인 상태·캐시 요약 |
-| `openlms sync [--course ID] [--metadata-only] [--max-size MB]` | 증분 다운로드 + 텍스트 추출 + 인덱싱 |
+| `openlms sync [--course ID] [--learningx] [--metadata-only] [--max-size MB]` | 증분 다운로드 + 텍스트 추출 + 인덱싱 |
 | `openlms courses` | 활성 과목 |
 | `openlms files [--course ID]` | 강의자료 목록 (텍스트 추출 상태 포함). `--course`를 주면 LearningX 링크도 표시 |
 | `openlms import <paths...> --course ID` | 직접 받은 파일·폴더를 과목에 가져와 인덱싱 |
@@ -185,6 +193,7 @@ src/
 ├── auth/     # OS 키체인 자격 증명
 ├── store/    # SQLite 캐시 + FTS5
 ├── extract/  # PDF/PPTX/DOCX/HTML 텍스트 추출
+├── learningx/ # LearningX 실행(sessionless launch) + PDF 수집 (opt-in)
 ├── lms.ts    # 캐시 우선 서비스 + 증분 sync
 ├── cli/      # 표 출력, 프롬프트
 ├── mcp/      # MCP 서버
@@ -196,5 +205,5 @@ src/
 
 - 스캔본(이미지) PDF는 텍스트가 없어 `empty`로 표시됩니다 (OCR 미지원).
 - `.ppt`/`.doc` 같은 구형 바이너리 포맷은 다운로드만 하고 파일명만 인덱싱합니다.
-- LearningX 콘텐츠는 자동으로 받지 않습니다. 브라우저에서 받은 뒤 `openlms import`로 추가하세요.
+- LearningX는 `--learningx`일 때 PDF만 받습니다. 그 밖의 형식은 브라우저에서 받은 뒤 `openlms import`로 추가하세요.
 - 학교가 개인 액세스 토큰 발급을 막아 둔 경우엔 사용할 수 없습니다.

@@ -85,3 +85,11 @@ export function formatDue(iso: string | null, now = Date.now()): string {
   }
   return `${local} (D-${Math.ceil(hours / 24)})`;
 }
+
+/** File name with a marker for files that did not come from Canvas Files. */
+export function fileLabel(f: { name: string; source?: string }): string {
+  if (f.source === "import") {
+    return `${f.name} (가져옴)`;
+  }
+  return f.source === "learningx" ? `${f.name} (LearningX)` : f.name;
+}

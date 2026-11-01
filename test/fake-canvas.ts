@@ -51,6 +51,9 @@ export interface FakeCanvas {
   /** Files that changed: bump updated_at. */
   touch(fileId: number): void;
   setRateRemaining(n: number | undefined): void;
+  /** LearningX PDF items: bump updated_at or remove one. */
+  touchLearningX(itemId: number): void;
+  removeLearningX(itemId: number): void;
   close(): Promise<void>;
 }
 
@@ -66,6 +69,18 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
   };
 
   let base = "";
+  const LX_TOKEN = "lx-session-token";
+  const lxPdfs: Record<string, Uint8Array> = {
+    c501: makePdf("Bloom filter hashing with double hashing"),
+    c502: makePdf("Cuckoo hashing and load factors"),
+  };
+  // LearningX module items of course 2: two PDFs, a locked PDF and a video.
+  const lxItems = new Map<number, { title: string; content: string; type: string; updated: string; locked?: boolean }>([
+    [501, { title: "4주차 해시 심화", content: "c501", type: "pdf", updated: "2026-09-10T00:00:00Z" }],
+    [502, { title: "5주차 해시 응용", content: "c502", type: "pdf", updated: "2026-09-11T00:00:00Z" }],
+    [503, { title: "6주차 잠김", content: "c503", type: "pdf", updated: "2026-09-12T00:00:00Z", locked: true }],
+    [504, { title: "강의 영상", content: "c504", type: "movie", updated: "2026-09-12T00:00:00Z" }],
+  ]);
   const fileJson = (id: number) => ({
     id,
     display_name: blobs[id]!.name,
@@ -90,6 +105,55 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
   const server: Server = createServer((req: IncomingMessage, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     requests.push({ path: url.pathname + url.search, auth: req.headers.authorization, host: req.headers.host });
+
+    // ---- LearningX (never authenticated with the Canvas token) ----
+    if (url.pathname === "/login/session_token") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<html><body><form action="${base}/learningx/lti/modulebuilder" method="POST" id="tool_form">
+        <input type="hidden" name="oauth_consumer_key" value="xinics" />
+        <input type="hidden" name="custom_canvas_course_id" value="2" />
+        <input type="hidden" name="oauth_signature" value="sig&amp;=" />
+        </form><script>document.getElementById("tool_form").submit()</script></body></html>`);
+      return;
+    }
+    if (url.pathname === "/learningx/lti/modulebuilder" && req.method === "POST") {
+      res.writeHead(302, { location: "/learningx/course/2", "set-cookie": [`xn_api_token=${encodeURIComponent(LX_TOKEN)}; Path=/`, "laravel_session=s1; Path=/"] });
+      res.end();
+      return;
+    }
+    if (url.pathname === "/learningx/course/2") {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html></html>");
+      return;
+    }
+    if (url.pathname === "/learningx/api/v1/courses/2/modules") {
+      if (req.headers.authorization !== `Bearer ${LX_TOKEN}`) {
+        return json(res, 401, { message: "unauthenticated" });
+      }
+      return json(res, 200, [{ module_id: 1, title: "4주차", module_items: [...lxItems].map(([id, it]) => ({
+        module_item_id: id,
+        title: it.title,
+        content_type: "attendance_item",
+        content_data: {
+          published: true,
+          opened: !it.locked,
+          updated_at: it.updated,
+          item_content_data: { content_type: it.type, view_url: `${base}/em/${it.content}`, file_name: `${it.title}.pdf`, updated_at: it.updated },
+        },
+      })) }]);
+    }
+    if (url.pathname === "/viewer/ssplayer/uniplayer_support/content.php") {
+      const id = url.searchParams.get("content_id");
+      res.writeHead(200, { "content-type": "text/xml" });
+      res.end(`<?xml version="1.0"?><content><content_playing_info><content_id>${id}</content_id><content_type>sharedocs</content_type><content_uri><![CDATA[${base}/contents/knu/${id}/contents/web_files/]]></content_uri></content_playing_info></content>`);
+      return;
+    }
+    const lxPdf = /^\/contents\/knu\/(\w+)\/contents\/web_files\/original\.pdf$/.exec(url.pathname);
+    if (lxPdf && lxPdfs[lxPdf[1]!]) {
+      res.writeHead(200, { "content-type": "application/pdf" });
+      res.end(lxPdfs[lxPdf[1]!]);
+      return;
+    }
 
     if (url.pathname.startsWith("/cdn/")) {
       const id = Number(url.pathname.split("/")[2]);
@@ -124,6 +188,22 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
     if (p === "/api/v1/courses/2/files") {
       // Real Canvas answers a hidden Files tab with 401 and no WWW-Authenticate.
       return json(res, 401, { status: "권한이 없음", errors: [{ message: "사용자에게 이 동작을 수행할 권한이 없음" }] });
+    }
+    if (p === "/api/v1/courses/1/tabs") {
+      return json(res, 200, [{ id: "home", label: "홈" }, { id: "files", label: "파일" }]);
+    }
+    if (p === "/api/v1/courses/2/tabs") {
+      return json(res, 200, [
+        { id: "home", label: "홈" },
+        { id: "context_external_tool_54", label: "출결체크", hidden: true },
+        { id: "context_external_tool_46", label: "강의실" },
+      ]);
+    }
+    if (p === "/api/v1/courses/2/external_tools/sessionless_launch") {
+      if (url.searchParams.get("id") !== "46") {
+        return json(res, 404, { errors: [{ message: "tool not found" }] });
+      }
+      return json(res, 200, { id: 46, name: "LearningX", url: `${base}/login/session_token?session_token=one-time` });
     }
     if (p === "/api/v1/courses/2/modules") {
       return json(res, 200, [{ id: 9, name: "1주차", items: [
@@ -175,6 +255,12 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
     },
     setRateRemaining(n) {
       rateRemaining = n;
+    },
+    touchLearningX(itemId) {
+      lxItems.get(itemId)!.updated = new Date().toISOString();
+    },
+    removeLearningX(itemId) {
+      lxItems.delete(itemId);
     },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };

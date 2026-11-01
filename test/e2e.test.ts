@@ -8,7 +8,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CredentialStore } from "../src/auth/credentials.js";
 import { CanvasClient, CanvasError, nextLink } from "../src/canvas/client.js";
-import { Lms } from "../src/lms.js";
+import { parseLaunchForm } from "../src/learningx/learningx.js";
+import { learningxFileId, Lms } from "../src/lms.js";
 import { createMcpServer } from "../src/mcp/server.js";
 import { snippet, Store } from "../src/store/store.js";
 import { makeDocx, startFakeCanvas, TOKEN, type FakeCanvas } from "./fake-canvas.js";
@@ -231,6 +232,76 @@ describe("sync, cache and MCP", () => {
     assert.equal(data.learningx[0].title, "3주차 강의자료");
     assert.match(data.note, /openlms import/);
     await client.close();
+  });
+});
+
+describe("learningx", () => {
+  let canvas: FakeCanvas;
+  let home: string;
+  let lms: Lms;
+
+  before(async () => {
+    canvas = await startFakeCanvas();
+    home = mkdtempSync(join(tmpdir(), "lms-lx-"));
+    lms = new Lms({ home, credentials: memoryCredentials(canvas.baseUrl), client: noSleep });
+  });
+  after(async () => {
+    lms.close();
+    await canvas.close();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("parses the LTI launch form", () => {
+    const form = parseLaunchForm(`<form action="/search"><input name="q"></form>
+      <form action='https://lms.example/learningx/lti/x?a=1&amp;b=2' method="post">
+      <input type="hidden" name="oauth_signature" value="a&amp;b=" /><input name="user_id" value='7'></form>`);
+    assert.equal(form.action, "https://lms.example/learningx/lti/x?a=1&b=2");
+    assert.equal(form.fields.get("oauth_signature"), "a&b=");
+    assert.equal(form.fields.get("user_id"), "7");
+    assert.throws(() => parseLaunchForm("<form action='/x'></form>"), /launch form not found/);
+  });
+
+  it("is off unless --learningx is given", async () => {
+    const report = await lms.sync({ courseId: 2 });
+    assert.equal(report.learningx, 0);
+    assert.ok(!canvas.requests.some((r) => r.path.startsWith("/learningx/") || r.path.includes("sessionless_launch")));
+  });
+
+  it("mirrors unlocked LearningX PDFs without sending the Canvas token", async () => {
+    const start = canvas.requests.length;
+    const report = await lms.sync({ learningx: true });
+    assert.deepEqual(report.errors, []);
+    assert.equal(report.learningx, 2);
+    assert.deepEqual(
+      lms.store.files(2).filter((f) => f.source === "learningx").map((f) => [f.id, f.name, f.textStatus]),
+      [
+        [learningxFileId(501), "4주차 해시 심화.pdf", "ok"],
+        [learningxFileId(502), "5주차 해시 응용.pdf", "ok"],
+      ],
+    );
+    assert.equal(lms.search("Bloom filter")[0]?.fileId, learningxFileId(501));
+    assert.match((await lms.readMaterial(learningxFileId(502))).text, /Cuckoo hashing/);
+
+    const offApi = canvas.requests.slice(start).filter((r) => /^\/(login|learningx|viewer|contents)\//.test(r.path));
+    assert.ok(offApi.some((r) => r.path.startsWith("/learningx/api/v1/courses/2/modules")));
+    for (const r of offApi) {
+      assert.notEqual(r.auth, `Bearer ${TOKEN}`, `Canvas token sent to ${r.path}`);
+    }
+  });
+
+  it("re-downloads changed items, drops removed ones, and keeps them across plain syncs", async () => {
+    canvas.touchLearningX(502);
+    canvas.removeLearningX(501);
+    const report = await lms.sync({ courseId: 2, learningx: true });
+    assert.deepEqual(report.errors, []);
+    assert.equal(report.downloaded, 1);
+    assert.equal(report.removed, 1);
+    assert.equal(lms.store.file(learningxFileId(501)), undefined);
+    assert.equal(lms.search("Bloom filter").length, 0);
+
+    const plain = await lms.sync({ courseId: 2 });
+    assert.equal(plain.removed, 0);
+    assert.equal(lms.store.file(learningxFileId(502))?.source, "learningx");
   });
 });
 

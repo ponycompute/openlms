@@ -109,7 +109,8 @@ function extractDocx(data: Uint8Array): string {
 }
 
 async function extractPdf(data: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(data);
+  // verbosity 0: only errors, not pdf.js font warnings on stdout.
+  const pdf = await getDocumentProxy(data, { verbosity: 0 });
   try {
     const { text } = await extractPdfText(pdf, { mergePages: false });
     return text
