@@ -60,6 +60,20 @@ CREATE TABLE IF NOT EXISTS links (
   html_url  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS links_course ON links(course_id);
+CREATE TABLE IF NOT EXISTS board_posts (
+  id          INTEGER PRIMARY KEY,
+  course_id   INTEGER NOT NULL,
+  board_id    INTEGER NOT NULL,
+  board       TEXT NOT NULL DEFAULT '',
+  title       TEXT NOT NULL,
+  author      TEXT NOT NULL DEFAULT '',
+  content     TEXT NOT NULL DEFAULT '',
+  posted_at   TEXT NOT NULL DEFAULT '',
+  updated_at  TEXT NOT NULL DEFAULT '',
+  is_notice   INTEGER NOT NULL DEFAULT 0,
+  attachments TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS board_posts_course ON board_posts(course_id);
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -77,9 +91,10 @@ export type TextStatus = "" | "ok" | "empty" | "unsupported" | "too_large" | "er
 
 /**
  * "canvas" files mirror the LMS; "learningx" files mirror LearningX PDFs
- * (`sync --learningx`); "import" files were added by `openlms import`.
+ * (`sync --learningx`); "board" files are Canvas files attached to LearningX
+ * board posts; "import" files were added by `openlms import`.
  */
-export type FileSource = "canvas" | "learningx" | "import";
+export type FileSource = "canvas" | "learningx" | "board" | "import";
 
 export interface Course {
   id: number;
@@ -135,6 +150,23 @@ export interface Announcement {
   postedAt: string | null;
   htmlUrl: string;
   author: string;
+}
+
+/** A LearningX board post; attachments are listed as files with source "board". */
+export interface BoardPostRow {
+  id: number;
+  courseId: number;
+  courseName?: string;
+  boardId: number;
+  board: string;
+  title: string;
+  author: string;
+  /** Plain text. */
+  content: string;
+  postedAt: string;
+  updatedAt: string;
+  isNotice: boolean;
+  attachments: { fileId: number; name: string; size: number }[];
 }
 
 export interface SearchHit {
@@ -488,6 +520,51 @@ export class Store {
       module: String(r.module),
       title: String(r.title),
       htmlUrl: String(r.html_url),
+    }));
+  }
+
+  // ---- board posts ----
+
+  replaceBoardPosts(courseId: number, posts: BoardPostRow[]): void {
+    const insert = this.db.prepare(
+      `INSERT OR REPLACE INTO board_posts (id, course_id, board_id, board, title, author, content, posted_at, updated_at, is_notice, attachments)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.tx(() => {
+      this.db.prepare("DELETE FROM board_posts WHERE course_id = ?").run(courseId);
+      for (const p of posts) {
+        insert.run(p.id, courseId, p.boardId, p.board, p.title, p.author, p.content, p.postedAt, p.updatedAt, p.isNotice ? 1 : 0, JSON.stringify(p.attachments));
+      }
+    });
+  }
+
+  /** Posts grouped by board (in first-seen board order), newest first within a board. */
+  boardPosts(opts: { courseId?: number; limit?: number } = {}): BoardPostRow[] {
+    let sql = `SELECT p.*, COALESCE(c.name, '') AS course_name FROM board_posts p LEFT JOIN courses c ON c.id = p.course_id`;
+    const args: number[] = [];
+    if (opts.courseId) {
+      sql += " WHERE p.course_id = ?";
+      args.push(opts.courseId);
+    }
+    sql += " ORDER BY p.course_id, (SELECT MIN(rowid) FROM board_posts b WHERE b.board_id = p.board_id), p.is_notice DESC, p.posted_at DESC";
+    if (opts.limit) {
+      sql += " LIMIT ?";
+      args.push(opts.limit);
+    }
+    const rows = this.db.prepare(sql).all(...args) as Row[];
+    return rows.map((r) => ({
+      id: Number(r.id),
+      courseId: Number(r.course_id),
+      courseName: String(r.course_name),
+      boardId: Number(r.board_id),
+      board: String(r.board),
+      title: String(r.title),
+      author: String(r.author),
+      content: String(r.content),
+      postedAt: String(r.posted_at),
+      updatedAt: String(r.updated_at),
+      isNotice: Number(r.is_notice) === 1,
+      attachments: JSON.parse(String(r.attachments)) as BoardPostRow["attachments"],
     }));
   }
 

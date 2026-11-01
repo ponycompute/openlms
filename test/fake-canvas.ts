@@ -54,18 +54,22 @@ export interface FakeCanvas {
   /** LearningX PDF items: bump updated_at or remove one. */
   touchLearningX(itemId: number): void;
   removeLearningX(itemId: number): void;
+  /** LearningX board posts: remove one. */
+  removeBoardPost(postId: number): void;
   close(): Promise<void>;
 }
 
 export async function startFakeCanvas(): Promise<FakeCanvas> {
   const requests: FakeCanvas["requests"] = [];
   let rateRemaining: number | undefined = 700;
-  const updated: Record<number, string> = { 101: "2026-09-01T00:00:00Z", 102: "2026-09-02T00:00:00Z", 103: "2026-09-03T00:00:00Z", 201: "2026-09-04T00:00:00Z" };
+  const updated: Record<number, string> = { 101: "2026-09-01T00:00:00Z", 102: "2026-09-02T00:00:00Z", 103: "2026-09-03T00:00:00Z", 201: "2026-09-04T00:00:00Z", 202: "2026-09-05T00:00:00Z" };
   const blobs: Record<number, { name: string; type: string; data: Uint8Array }> = {
     101: { name: "1주차_운영체제_개요.pptx", type: "application/vnd.openxmlformats-officedocument.presentationml.presentation", data: makePptx([["운영체제 개요"], ["프로세스 스케줄링: 라운드 로빈", "문맥 교환 비용"]]) },
     102: { name: "syllabus.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data: makeDocx(["강의계획서", "중간고사는 8주차에 진행합니다."]) },
     103: { name: "lecture2.pdf", type: "application/pdf", data: makePdf("Virtual memory and paging with TLB lookups") },
     201: { name: "자료구조_해시.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data: makeDocx(["해시 테이블 충돌 해결: 체이닝과 개방 주소법"]) },
+    // Only attached to a LearningX board post, never in the Files/modules lists.
+    202: { name: "트리_순회.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data: makeDocx(["전위 순회와 중위 순회, 후위 순회"]) },
   };
 
   let base = "";
@@ -80,6 +84,14 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
     [502, { title: "5주차 해시 응용", content: "c502", type: "pdf", updated: "2026-09-11T00:00:00Z" }],
     [503, { title: "6주차 잠김", content: "c503", type: "pdf", updated: "2026-09-12T00:00:00Z", locked: true }],
     [504, { title: "강의 영상", content: "c504", type: "movie", updated: "2026-09-12T00:00:00Z" }],
+  ]);
+  // LearningX boards of course 2. Board 71 spans two pages; post 803 attaches
+  // file 201, which the Canvas modules list already has.
+  const boards = [{ id: 71, title: "강의자료실" }, { id: 72, title: "Q&A 게시판" }];
+  const posts = new Map<number, { board: number; page: number; title: string; content: string; notice?: boolean; files: number[] }>([
+    [801, { board: 71, page: 1, title: "시험 범위 안내", content: "<p>중간고사는 <b>트리</b>까지</p>", notice: true, files: [] }],
+    [802, { board: 71, page: 2, title: "6주차 트리 자료", content: "<p>트리 순회 자료입니다.</p>", files: [202] }],
+    [803, { board: 72, page: 1, title: "해시 질문", content: "<p>체이닝 질문</p>", files: [201] }],
   ]);
   const fileJson = (id: number) => ({
     id,
@@ -141,6 +153,32 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
           item_content_data: { content_type: it.type, view_url: `${base}/em/${it.content}`, file_name: `${it.title}.pdf`, updated_at: it.updated },
         },
       })) }]);
+    }
+    const board = /^\/learningx\/api\/v1\/learningx_board\/courses\/2\/boards(?:\/(\d+)\/posts(?:\/(\d+))?)?$/.exec(url.pathname);
+    if (board) {
+      if (req.headers.authorization !== `Bearer ${LX_TOKEN}`) {
+        return json(res, 401, { message: "unauthenticated" });
+      }
+      const [, boardId, postId] = board;
+      if (!boardId) {
+        return json(res, 200, boards);
+      }
+      if (postId) {
+        const p = posts.get(Number(postId));
+        return p ? json(res, 200, { id: Number(postId), title: p.title, attachments: p.files.map((f) => ({ id: f * 10, filename: blobs[f]!.name, filesize: blobs[f]!.data.length, canvas_file_id: f })) }) : json(res, 404, {});
+      }
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const items = [...posts].filter(([, p]) => p.board === Number(boardId) && p.page === page).map(([id, p]) => ({
+        id,
+        title: p.title,
+        user_name: "김교수",
+        content: p.content,
+        is_notice: Boolean(p.notice),
+        attachment_count: p.files.length,
+        created_at: "2026-10-01T00:00:00Z",
+        post_updated_at: "2026-10-01T00:00:00Z",
+      }));
+      return json(res, 200, { items, pagination: { current_page: page, last_page: Number(boardId) === 71 ? 2 : 1 } });
     }
     if (url.pathname === "/viewer/ssplayer/uniplayer_support/content.php") {
       const id = url.searchParams.get("content_id");
@@ -261,6 +299,9 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
     },
     removeLearningX(itemId) {
       lxItems.delete(itemId);
+    },
+    removeBoardPost(postId) {
+      posts.delete(postId);
     },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };

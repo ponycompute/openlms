@@ -4,8 +4,9 @@
 // names the LearningX tool, and `sessionless_launch` returns a one-time
 // launch URL. Posting that LTI launch form to LearningX (with no Canvas
 // token or cookies) yields an `xn_api_token`, which then reads the course's
-// LearningX modules. PDF originals live on the school's content server and
-// are fetched without any credentials.
+// LearningX modules and boards. PDF originals live on the school's content
+// server and are fetched without any credentials; board attachments are
+// ordinary Canvas files.
 import type { CanvasClient } from "../canvas/client.js";
 
 export class LearningXError extends Error {
@@ -23,6 +24,56 @@ export interface LearningXPdf {
   fileName: string;
   viewUrl: string;
   updatedAt: string;
+}
+
+/** A file attached to a LearningX board post; it is an ordinary Canvas file. */
+export interface BoardAttachment {
+  fileId: number;
+  name: string;
+  size: number;
+}
+
+/** A post on one of a course's LearningX boards (강의자료실, Q&A 게시판, ...). */
+export interface BoardPost {
+  id: number;
+  boardId: number;
+  board: string;
+  title: string;
+  author: string;
+  /** HTML body. */
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  isNotice: boolean;
+  attachmentCount: number;
+  /** Undefined when the caller already holds this version's attachments. */
+  attachments?: BoardAttachment[];
+}
+
+interface LxBoard {
+  id: number;
+  title?: string;
+}
+
+interface LxPost {
+  id: number;
+  title?: string;
+  user_name?: string;
+  content?: string | null;
+  is_notice?: boolean;
+  attachment_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  post_updated_at?: string;
+}
+
+interface LxPostPage {
+  items?: LxPost[];
+  pagination?: { current_page?: number; last_page?: number };
+}
+
+interface LxPostDetail {
+  attachments?: { filename?: string; filesize?: number; canvas_file_id?: number | null }[];
 }
 
 interface CanvasTab {
@@ -66,6 +117,7 @@ interface Session {
 const PREFERRED_TAB = /주차학습|강의\s*콘텐츠|강의실|Weekly/i;
 const MAX_TOOLS_TRIED = 3;
 const MAX_REDIRECTS = 6;
+const MAX_POST_PAGES = 50;
 
 function decodeEntities(s: string): string {
   return s
@@ -222,12 +274,9 @@ export class LearningX {
    * Lists the openable PDF items of a course's LearningX modules, or
    * `undefined` when the course has no LearningX tool.
    */
-  async pdfs(courseId: number, signal?: AbortSignal): Promise<LearningXPdf[] | undefined> {
-    const session = await this.session(courseId, signal);
-    if (!session) {
-      return undefined;
-    }
-    const response = await this.fetch(`${session.origin}/learningx/api/v1/courses/${courseId}/modules?include_detail=true`, {
+  /** GETs a LearningX API path with the session token; null on 403/404. */
+  private async apiGet<T>(courseId: number, session: Session, path: string, signal?: AbortSignal): Promise<T | null> {
+    const response = await this.fetch(`${session.origin}/learningx/api/v1${path}`, {
       headers: {
         accept: "application/json",
         authorization: `Bearer ${decodeURIComponent(session.cookies.get("xn_api_token")!)}`,
@@ -235,12 +284,27 @@ export class LearningX {
       },
       signal,
     });
+    if (response.status === 403 || response.status === 404) {
+      await response.body?.cancel();
+      return null;
+    }
     if (!response.ok) {
       await response.body?.cancel();
       this.sessions.delete(courseId);
-      throw new LearningXError(`LearningX modules: ${response.status}`);
+      throw new LearningXError(`LearningX ${path.split("?")[0]}: ${response.status}`);
     }
-    const modules = (await response.json()) as LxModule[];
+    return (await response.json()) as T;
+  }
+
+  async pdfs(courseId: number, signal?: AbortSignal): Promise<LearningXPdf[] | undefined> {
+    const session = await this.session(courseId, signal);
+    if (!session) {
+      return undefined;
+    }
+    const modules = await this.apiGet<LxModule[]>(courseId, session, `/courses/${courseId}/modules?include_detail=true`, signal);
+    if (modules === null) {
+      throw new LearningXError("LearningX modules: not found");
+    }
     const out: LearningXPdf[] = [];
     for (const module of Array.isArray(modules) ? modules : []) {
       for (const item of module.module_items ?? []) {
@@ -257,6 +321,55 @@ export class LearningX {
           viewUrl: media.view_url,
           updatedAt: media.updated_at ?? item.content_data?.updated_at ?? "",
         });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Lists the posts of every LearningX board in a course, or `undefined` when
+   * the course has no LearningX tool. Attachments are read from each post's
+   * detail, except for posts whose `updatedAt` matches `known` (the caller's
+   * cached version), which come back with `attachments` undefined.
+   */
+  async boardPosts(courseId: number, opts: { known?: Map<number, string>; signal?: AbortSignal } = {}): Promise<BoardPost[] | undefined> {
+    const session = await this.session(courseId, opts.signal);
+    if (!session) {
+      return undefined;
+    }
+    const base = `/learningx_board/courses/${courseId}/boards`;
+    const boards = await this.apiGet<LxBoard[]>(courseId, session, base, opts.signal);
+    const out: BoardPost[] = [];
+    for (const board of Array.isArray(boards) ? boards : []) {
+      for (let page = 1; page <= MAX_POST_PAGES; page++) {
+        const list = await this.apiGet<LxPostPage>(courseId, session, `${base}/${board.id}/posts?page=${page}`, opts.signal);
+        for (const p of list?.items ?? []) {
+          const updatedAt = p.post_updated_at || p.updated_at || p.created_at || "";
+          const post: BoardPost = {
+            id: p.id,
+            boardId: board.id,
+            board: board.title ?? "",
+            title: p.title ?? "",
+            author: p.user_name ?? "",
+            content: p.content ?? "",
+            createdAt: p.created_at ?? "",
+            updatedAt,
+            isNotice: Boolean(p.is_notice),
+            attachmentCount: p.attachment_count ?? 0,
+          };
+          if (post.attachmentCount === 0) {
+            post.attachments = [];
+          } else if (opts.known?.get(p.id) !== updatedAt) {
+            const detail = await this.apiGet<LxPostDetail>(courseId, session, `${base}/${board.id}/posts/${p.id}`, opts.signal);
+            post.attachments = (detail?.attachments ?? [])
+              .filter((a) => a.canvas_file_id)
+              .map((a) => ({ fileId: a.canvas_file_id!, name: a.filename ?? `file ${a.canvas_file_id}`, size: a.filesize ?? 0 }));
+          }
+          out.push(post);
+        }
+        if (!list || (list.pagination?.last_page ?? 1) <= page) {
+          break;
+        }
       }
     }
     return out;

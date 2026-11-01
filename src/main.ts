@@ -136,7 +136,7 @@ program
             "",
             `✓ 동기화 완료 (${((Date.now() - started) / 1000).toFixed(1)}s)`,
             `  과목 ${report.courses} · 파일 ${report.filesTotal}${opts.learningx ? ` (LearningX ${report.learningx} 포함)` : ""} (다운로드 ${report.downloaded}, 변경 없음 ${report.skipped}, 삭제 ${report.removed})`,
-            `  텍스트 인덱싱 ${report.indexed} · 과제 ${report.assignments} · 공지 ${report.announcements}`,
+            `  텍스트 인덱싱 ${report.indexed} · 과제 ${report.assignments} · 공지 ${report.announcements}${opts.learningx ? ` · 게시글 ${report.boardPosts}` : ""}`,
           ];
           if (report.errors.length) {
             lines.push(`  ⚠ 오류 ${report.errors.length}건:`, ...report.errors.map((e) => `    - ${e}`));
@@ -275,6 +275,28 @@ program
         list
           .map((a) => `■ ${a.title}\n  ${a.courseName} · ${a.postedAt ? new Date(a.postedAt).toLocaleString("ko-KR") : "-"} · ${a.author}\n  ${a.message.slice(0, 200).replace(/\n+/g, " ")}`)
           .join("\n\n") || "공지가 없습니다.",
+      );
+    }),
+  );
+
+program
+  .command("boards")
+  .description("list LearningX board posts (강의자료실, Q&A, ...); attachments are listed by `files`")
+  .option("--course <id>", "course ID (without it, cached posts of all courses)", intArg)
+  .option("--limit <n>", "max items", intArg, 50)
+  .option("--refresh", "refresh from LearningX")
+  .option("--json", "output JSON")
+  .action((opts: { course?: number; limit: number; refresh?: boolean; json?: boolean }) =>
+    withLms(async (lms) => {
+      const list = await lms.boardPosts({ courseId: opts.course, limit: opts.limit, refresh: opts.refresh });
+      print(opts.json, list, () =>
+        list
+          .map((p) => {
+            const files = p.attachments.map((a) => `\n  첨부 [${a.fileId}] ${a.name}`).join("");
+            const body = p.content.slice(0, 200).replace(/\n+/g, " ");
+            return `■ [${p.board}] ${p.title}\n  ${p.courseName} · ${p.postedAt ? new Date(p.postedAt).toLocaleString("ko-KR") : "-"} · ${p.author}${body ? `\n  ${body}` : ""}${files}`;
+          })
+          .join("\n\n") || (opts.course ? "게시글이 없습니다." : "캐시된 게시글이 없습니다. `--course ID` 또는 `openlms sync --learningx`로 받으세요."),
       );
     }),
   );

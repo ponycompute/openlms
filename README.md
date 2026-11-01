@@ -70,6 +70,8 @@ openlms sync
 openlms sync --learningx
 ```
 
+LearningX **게시판**(강의자료실, Q&A 게시판 등)도 함께 받습니다. 게시글은 TUI `게시판` 탭과 `openlms boards`, MCP `list_board_posts`로 볼 수 있고, 첨부파일(Canvas 파일)은 강의자료로 받아 인덱싱합니다. 강의자료를 게시판에만 올리는 과목도 이렇게 검색할 수 있습니다. `--learningx` 없이도 게시판 탭을 열거나 `openlms boards --course ID`를 실행하면 그 과목의 게시글 목록을 읽어 옵니다(첨부파일은 열 때 받습니다).
+
 Canvas의 문서화된 `sessionless_launch` API로 LearningX를 실행해 LearningX 세션을 받고, 그 세션으로 강의 목록을 읽습니다. Canvas 토큰은 LearningX나 콘텐츠 서버로 보내지 않으며, 세션은 메모리에만 두고 저장하지 않습니다. 다만 LearningX의 API는 공개 문서가 없어 예고 없이 바뀔 수 있고, 학교 이용 약관은 직접 확인하세요. 영상과 잠긴 항목은 받지 않습니다. 받은 파일은 `(LearningX)`로 표시됩니다.
 
 `--learningx`로 받을 수 없는 자료(PPTX 등)는 브라우저에서 받아 직접 가져올 수 있습니다:
@@ -94,6 +96,7 @@ openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하�
 | `openlms unimport <fileId>` | 가져온 파일을 인덱스에서 제거 |
 | `openlms assignments [--course ID] [--upcoming] [--days N]` | 과제 (마감순) |
 | `openlms announcements [--course ID] [--limit N]` | 최근 공지 |
+| `openlms boards [--course ID] [--limit N]` | LearningX 게시판 글 (첨부파일은 `files`에 표시) |
 | `openlms search <query...> [--course ID]` | 로컬 인덱스 전문 검색 |
 | `openlms read <fileId>` | 자료의 추출 텍스트 출력 (없으면 즉시 받아서 추출) |
 | `openlms tui` | 터미널 UI |
@@ -110,9 +113,10 @@ openlms tui
 학교 Canvas처럼 보이도록 만들었습니다. 왼쪽 글로벌 메뉴는 학교 브랜드 색, 과목 카드는 Canvas 대시보드에서 고른 색을 그대로 씁니다. 패널·탭·`[ OK ]` 태그·진행 막대는 ANSI(Tango) 팔레트의 터미널 UI 스타일을 따르고, 오른쪽 위에 마지막 동기화 상태를 보여 줍니다.
 
 - **대시보드**: 과목 카드(`←↑↓→`로 이동, `enter`로 열기, 추출된 자료 수 막대) + 오른쪽 **할 일** 패널(2주 안에 마감되는 과제, 넓은 터미널에서만)
-- **과목**: 위쪽 탭 `주차학습 / 과제 / 공지사항` (`tab`, `←/→`, `1`–`3`)
+- **과목**: 위쪽 탭 `주차학습 / 과제 / 공지사항 / 게시판` (`tab`, `←/→`, `1`–`4`)
   - 주차학습은 LearningX처럼 **주차별**로 묶어 보여 줍니다. `PDF`·`PPT` 항목은 `enter`로 추출 텍스트를, `LX` 항목은 브라우저에서 엽니다
   - 과제는 다가오는 과제 / 마감일 없는 과제 / 지난 과제로 나눠 보여 줍니다
+  - 게시판은 LearningX 게시판별로 글을 묶어 보여 줍니다. 첨부파일은 주차학습 탭의 같은 게시판 이름 아래에서 엽니다
 - **할 일**(`t`): 날짜별 마감 과제, **검색**(`/`): 과목별로 묶은 전체 자료 검색
 - `s` 전체 동기화 (LearningX를 한 번이라도 받았다면 포함). 진행 상황은 아래 상태 바에 표시됩니다
 - `r` 현재 화면을 LMS에서 새로고침, `d` 대시보드, `esc` 뒤로, `q` 종료
@@ -127,6 +131,7 @@ openlms tui
 | `search_materials` | `query`, `course_id?`, `limit?` | 전문 검색, `«…»` 하이라이트 스니펫 |
 | `list_assignments` | `course_id?`, `upcoming_only?`, `within_days?`, `refresh?` | 마감순 과제 |
 | `get_announcements` | `course_id?`, `limit?`, `refresh?` | 최근 공지 |
+| `list_board_posts` | `course_id?`, `limit?`, `refresh?` | LearningX 게시판 글과 첨부파일 ID (`read_material`로 읽기) |
 
 모든 툴은 `readOnlyHint: true`입니다. 대량 동기화는 MCP가 아니라 터미널의 `openlms sync`로 하세요.
 
@@ -212,5 +217,5 @@ src/
 
 - 스캔본(이미지) PDF는 텍스트가 없어 `empty`로 표시됩니다 (OCR 미지원).
 - `.ppt`/`.doc` 같은 구형 바이너리 포맷은 다운로드만 하고 파일명만 인덱싱합니다.
-- LearningX는 `--learningx`일 때 PDF만 받습니다. 그 밖의 형식은 브라우저에서 받은 뒤 `openlms import`로 추가하세요.
+- LearningX는 `--learningx`일 때 주차학습의 PDF와 게시판 첨부파일만 받습니다. 그 밖의 형식은 브라우저에서 받은 뒤 `openlms import`로 추가하세요.
 - 학교가 개인 액세스 토큰 발급을 막아 둔 경우엔 사용할 수 없습니다.

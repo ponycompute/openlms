@@ -16,6 +16,7 @@ import {
   type Announcement,
   type Assignment,
   type AssignmentFilter,
+  type BoardPostRow,
   type Course,
   type FileRow,
   type Link,
@@ -47,6 +48,8 @@ export interface SyncReport {
   filesTotal: number;
   /** LearningX PDFs found (included in filesTotal). */
   learningx: number;
+  /** LearningX board posts (their attachments are included in filesTotal). */
+  boardPosts: number;
   downloaded: number;
   skipped: number;
   indexed: number;
@@ -249,6 +252,18 @@ export class Lms {
   }
 
   /**
+   * LearningX board posts of a course (cache-first). Without `courseId` only
+   * the cache is read. Attachments are listed as "board" files and are
+   * downloaded by sync or on first read.
+   */
+  async boardPosts(opts: { courseId?: number; limit?: number; refresh?: boolean } = {}): Promise<BoardPostRow[]> {
+    if (opts.courseId && (opts.refresh || !this.store.meta(`boards_synced:${opts.courseId}`))) {
+      await this.refreshBoards(opts.courseId);
+    }
+    return this.store.boardPosts({ courseId: opts.courseId, limit: opts.limit });
+  }
+
+  /**
    * Returns extracted text for a file, downloading and extracting on demand
    * when it is not cached yet. `offset`/`maxChars` page through long texts.
    */
@@ -263,7 +278,7 @@ export class Lms {
       const api = await this.api();
       const meta = await api.file(fileId);
       const courseId = file?.courseId ?? 0;
-      file = await this.fetchAndIndex(meta, courseId);
+      file = await this.fetchAndIndex(meta, courseId, undefined, file && { source: file.source, module: file.module });
       text = this.store.text(fileId);
     }
     if (!file) {
@@ -322,6 +337,63 @@ export class Lms {
     this.store.upsertAnnouncements(list.map(toAnnouncement));
     this.store.setMeta("announcements_synced", new Date().toISOString());
     return list.length;
+  }
+
+  /**
+   * Refreshes a course's LearningX board posts and records their attachments
+   * as "board" files; new or changed ones stay pending until downloaded.
+   * Attachments that the Canvas file list already has are left to it.
+   */
+  private async refreshBoards(courseId: number, signal?: AbortSignal): Promise<{ posts: number; files: FileRow[]; removed: number }> {
+    const cached = new Map(this.store.boardPosts({ courseId }).map((p) => [p.id, p]));
+    const known = new Map([...cached].map(([id, p]) => [id, p.updatedAt]));
+    const posts = (await (await this.learningx()).boardPosts(courseId, { known, signal })) ?? [];
+    const rows: BoardPostRow[] = posts.map((p) => ({
+      id: p.id,
+      courseId,
+      boardId: p.boardId,
+      board: p.board,
+      title: p.title,
+      author: p.author,
+      content: htmlToText(p.content),
+      postedAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      isNotice: p.isNotice,
+      attachments: p.attachments ?? cached.get(p.id)?.attachments ?? [],
+    }));
+    this.store.replaceBoardPosts(courseId, rows);
+    const files: FileRow[] = [];
+    const keep = new Set<number>();
+    for (const post of rows) {
+      for (const a of post.attachments) {
+        const existing = this.store.file(a.fileId);
+        if (keep.has(a.fileId) || (existing && existing.source !== "board")) {
+          continue;
+        }
+        keep.add(a.fileId);
+        const changed = !existing || existing.size !== a.size;
+        const row: FileRow = {
+          id: a.fileId,
+          courseId,
+          name: existing?.name ?? a.name,
+          contentType: existing?.contentType ?? "",
+          size: a.size,
+          updatedAt: existing?.updatedAt ?? post.updatedAt,
+          localPath: existing?.localPath ?? "",
+          textStatus: changed ? "" : existing.textStatus,
+          source: "board",
+          module: post.board,
+        };
+        this.store.upsertFile(row);
+        files.push(row);
+      }
+    }
+    const removed = this.store.pruneFiles(courseId, keep, "board");
+    for (const path of removed) {
+      await rm(path, { force: true });
+    }
+    this.store.setMeta(`boards_synced:${courseId}`, new Date().toISOString());
+    return { posts: rows.length, files, removed: removed.length };
   }
 
   // ---- manual import ----
@@ -459,6 +531,46 @@ export class Lms {
     }
   }
 
+  /** Refreshes a course's board posts and downloads new or changed attachments. */
+  private async syncBoards(courseId: number, report: SyncReport, opts: SyncOptions, log: (m: string) => void): Promise<void> {
+    const { posts, files, removed } = await this.refreshBoards(courseId, opts.signal);
+    report.boardPosts += posts;
+    report.filesTotal += files.length;
+    report.removed += removed;
+    if (opts.metadataOnly) {
+      return;
+    }
+    const api = await this.api();
+    for (const f of files) {
+      if (opts.signal?.aborted) {
+        return;
+      }
+      const unchanged =
+        f.textStatus !== "" &&
+        f.textStatus !== "error" &&
+        (f.textStatus === "too_large" || (f.localPath !== "" && existsSync(f.localPath)));
+      if (unchanged) {
+        report.skipped++;
+        continue;
+      }
+      log(`  ↓ ${f.name} (${f.module})`);
+      try {
+        const row = await this.fetchAndIndex(await api.file(f.id, opts.signal), courseId, opts.signal, { source: "board", module: f.module });
+        if (row.localPath) {
+          report.downloaded++;
+        }
+        if (row.textStatus === "ok") {
+          report.indexed++;
+        }
+      } catch (err) {
+        if (isFatal(err)) {
+          throw err;
+        }
+        report.errors.push(`${f.module} / ${f.name}: ${message(err)}`);
+      }
+    }
+  }
+
   private learningxRow(courseId: number, pdf: LearningXPdf, prev?: FileRow): FileRow {
     return {
       id: learningxFileId(pdf.itemId),
@@ -500,7 +612,12 @@ export class Lms {
   }
 
   /** Downloads one file, extracts and indexes its text, and records it. */
-  private async fetchAndIndex(f: CanvasFile, courseIdHint: number, signal?: AbortSignal): Promise<FileRow> {
+  private async fetchAndIndex(
+    f: CanvasFile,
+    courseIdHint: number,
+    signal?: AbortSignal,
+    origin: Pick<FileRow, "source" | "module"> = {},
+  ): Promise<FileRow> {
     const api = await this.api();
     const courseId = courseIdHint || this.store.file(f.id)?.courseId || 0;
     const row: FileRow = {
@@ -512,6 +629,7 @@ export class Lms {
       updatedAt: f.updated_at ?? "",
       localPath: "",
       textStatus: "",
+      ...origin,
     };
     if (f.size > this.maxFileBytes) {
       row.textStatus = "too_large";
@@ -590,6 +708,7 @@ export class Lms {
       courses: 0,
       filesTotal: 0,
       learningx: 0,
+      boardPosts: 0,
       downloaded: 0,
       skipped: 0,
       indexed: 0,
@@ -659,6 +778,15 @@ export class Lms {
               throw err;
             }
             report.errors.push(`${course.name} / LearningX: ${message(err)}`);
+          }
+          log(`[${course.name}] boards…`);
+          try {
+            await this.syncBoards(course.id, report, opts, log);
+          } catch (err) {
+            if (isFatal(err)) {
+              throw err;
+            }
+            report.errors.push(`${course.name} / boards: ${message(err)}`);
           }
         }
         log(`[${course.name}] assignments…`);

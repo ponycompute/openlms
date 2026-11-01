@@ -162,6 +162,22 @@ export function createMcpServer(lms: Lms): McpServer {
     ({ course_id, limit, refresh }) => guard(async () => ok(await lms.announcements({ courseId: course_id, limit: limit ?? 20, refresh }))),
   );
 
+  server.registerTool(
+    "list_board_posts",
+    {
+      title: "List board posts",
+      description:
+        "Posts on the course's LearningX boards (e.g. 강의자료실, Q&A 게시판), grouped by board. Attachments carry file IDs for read_material and are also indexed for search_materials.",
+      inputSchema: {
+        course_id: z.number().int().optional().describe("Course to read (fetched if not cached); omit for cached posts of all courses"),
+        limit: z.number().int().min(1).max(500).optional().describe("Max posts (default 100)"),
+        refresh: z.boolean().optional().describe("Force refresh from LearningX"),
+      },
+      annotations: READ_ONLY,
+    },
+    ({ course_id, limit, refresh }) => guard(async () => ok(await lms.boardPosts({ courseId: course_id, limit: limit ?? 100, refresh }))),
+  );
+
   return server;
 }
 

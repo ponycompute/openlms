@@ -161,6 +161,7 @@ describe("sync, cache and MCP", () => {
     assert.deepEqual(tools.map((t) => t.name).sort(), [
       "get_announcements",
       "list_assignments",
+      "list_board_posts",
       "list_courses",
       "list_materials",
       "read_material",
@@ -313,6 +314,48 @@ describe("learningx", () => {
     const plain = await lms.sync({ courseId: 2 });
     assert.equal(plain.removed, 0);
     assert.equal(lms.store.file(learningxFileId(502))?.source, "learningx");
+  });
+
+  it("mirrors board posts and indexes their attachments", async () => {
+    const posts = lms.store.boardPosts({ courseId: 2 });
+    assert.deepEqual(
+      posts.map((p) => [p.board, p.title, p.isNotice, p.attachments.map((a) => a.fileId)]),
+      [
+        ["강의자료실", "시험 범위 안내", true, []],
+        ["강의자료실", "6주차 트리 자료", false, [202]],
+        ["Q&A 게시판", "해시 질문", false, [201]],
+      ],
+    );
+    assert.match(posts[0]!.content, /중간고사는 트리까지/);
+    const attached = lms.store.file(202);
+    assert.equal(attached?.source, "board");
+    assert.equal(attached?.module, "강의자료실");
+    assert.equal(attached?.textStatus, "ok");
+    assert.equal(lms.search("중위 순회")[0]?.fileId, 202);
+    // A file the Canvas list already has stays a Canvas file.
+    assert.equal(lms.store.file(201)?.source, "canvas");
+    assert.ok(!canvas.requests.some((r) => r.path.startsWith("/learningx/") && r.auth === `Bearer ${TOKEN}`));
+  });
+
+  it("re-reads only changed posts and drops attachments of removed posts", async () => {
+    const start = canvas.requests.length;
+    const again = await lms.sync({ courseId: 2, learningx: true });
+    assert.deepEqual(again.errors, []);
+    assert.equal(again.boardPosts, 3);
+    const detailCalls = canvas.requests.slice(start).filter((r) => /\/posts\/\d+$/.test(r.path));
+    assert.deepEqual(detailCalls, []);
+    assert.ok(!canvas.requests.slice(start).some((r) => r.path.startsWith("/cdn/202")));
+
+    const plain = await lms.sync({ courseId: 2 });
+    assert.equal(plain.removed, 0);
+    assert.equal(lms.store.file(202)?.source, "board");
+
+    canvas.removeBoardPost(802);
+    const report = await lms.sync({ courseId: 2, learningx: true });
+    assert.equal(report.boardPosts, 2);
+    assert.equal(report.removed, 1);
+    assert.equal(lms.store.file(202), undefined);
+    assert.equal(lms.search("중위 순회").length, 0);
   });
 });
 

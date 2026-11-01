@@ -10,6 +10,7 @@ export const I = {
   materials: "▤",
   assignments: "✎",
   announcements: "※",
+  boards: "☰",
   more: "⋮",
   bullet: "■",
 };

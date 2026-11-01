@@ -2,7 +2,7 @@ import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayWidth, formatBytes, truncate } from "../cli/format.js";
 import type { Lms, Theme } from "../lms.js";
-import type { Announcement, Assignment, Course, FileRow, Link, SearchHit } from "../store/store.js";
+import type { Announcement, Assignment, BoardPostRow, Course, FileRow, Link, SearchHit } from "../store/store.js";
 import {
   CARD_HEIGHT,
   CourseCard,
@@ -41,12 +41,14 @@ interface Materials {
   links: Link[];
 }
 
-type Tab = "materials" | "assignments" | "announcements";
+type Tab = "materials" | "assignments" | "announcements" | "boards";
 const TABS: { key: Tab; label: string }[] = [
   { key: "materials", label: "주차학습" },
   { key: "assignments", label: "과제" },
   { key: "announcements", label: "공지사항" },
+  { key: "boards", label: "게시판" },
 ];
+const TAB_KEYS = TABS.map((_, i) => String(i + 1));
 const tabTitle = (key: Tab) => `${I[key]} ${TABS.find((t) => t.key === key)!.label}`;
 
 type Screen =
@@ -203,6 +205,34 @@ function announcementRows(list: Announcement[]): Row[] {
   }));
 }
 
+function boardRows(list: BoardPostRow[]): Row[] {
+  const counts = new Map<number, number>();
+  for (const p of list) {
+    counts.set(p.boardId, (counts.get(p.boardId) ?? 0) + 1);
+  }
+  return list.map((p) => {
+    const files = p.attachments.length ? ` · 첨부 ${p.attachments.length}` : "";
+    return {
+      key: `p${p.id}`,
+      section: `${p.board} (${counts.get(p.boardId)})`,
+      badge: p.isNotice ? { text: "공지", color: C.cyan } : { text: "글", color: C.muted },
+      label: p.title,
+      right: `${shortDate(p.postedAt)}${files}`,
+      sub: [p.author, p.content.replace(/\s+/g, " ").trim()].filter(Boolean).join(" · "),
+      open: async () => ({
+        title: p.title,
+        meta: [p.board, p.author, p.postedAt ? new Date(p.postedAt).toLocaleString("ko-KR") : ""].filter(Boolean).join(" · "),
+        body: [
+          p.content || "(본문 없음)",
+          ...(p.attachments.length
+            ? ["", "## 첨부파일", ...p.attachments.map((a) => `- ${a.name}${a.size ? ` (${formatBytes(a.size)})` : ""}`), "", `주차학습 탭의 「${p.board}」에서 열 수 있습니다.`]
+            : []),
+        ].join("\n"),
+      }),
+    };
+  });
+}
+
 export function App({ lms }: { lms: Lms }) {
   const { exit } = useApp();
   // Re-renders on every resize, so all widths below follow the window.
@@ -250,7 +280,7 @@ export function App({ lms }: { lms: Lms }) {
   const lastSync = lms.store.meta("last_sync");
 
   const courseKey = screen.kind === "course" ? `${screen.course.id}:${screen.tab}` : "-";
-  const courseData = useAsync<Materials | Assignment[] | Announcement[] | undefined>(async () => {
+  const courseData = useAsync<Materials | Assignment[] | Announcement[] | BoardPostRow[] | undefined>(async () => {
     if (screen.kind !== "course") {
       return undefined;
     }
@@ -262,6 +292,9 @@ export function App({ lms }: { lms: Lms }) {
     }
     if (screen.tab === "assignments") {
       return lms.assignments({ courseId: id }, { refresh });
+    }
+    if (screen.tab === "boards") {
+      return lms.boardPosts({ courseId: id, refresh });
     }
     return lms.announcements({ courseId: id, limit: 100, refresh });
   }, `${courseKey}:${reload}`);
@@ -319,6 +352,9 @@ export function App({ lms }: { lms: Lms }) {
       if (screen.tab === "assignments") {
         return assignmentRows(courseData.data as Assignment[], colorOf(screen.course.id));
       }
+      if (screen.tab === "boards") {
+        return boardRows(courseData.data as BoardPostRow[]);
+      }
       return announcementRows(courseData.data as Announcement[]);
     }
     return [];
@@ -337,8 +373,8 @@ export function App({ lms }: { lms: Lms }) {
     }
     const controller = new AbortController();
     syncAbort.current = controller;
-    // LearningX is opt-in: include it once the user has synced it before.
-    const learningx = lms.store.files().some((f) => f.source === "learningx");
+    // LearningX is opt-in: include it once the user has synced it (or its boards) before.
+    const learningx = lms.store.files().some((f) => f.source === "learningx" || f.source === "board");
     setStatus("");
     setSyncing("동기화 시작…");
     lms
@@ -457,9 +493,9 @@ export function App({ lms }: { lms: Lms }) {
     }
     if (key.upArrow || input === "k") setCursor((c) => Math.max(0, c - 1));
     else if (key.downArrow || input === "j") setCursor((c) => Math.min(Math.max(0, items.length - 1), c + 1));
-    else if (screen.kind === "course" && (key.tab || key.rightArrow || key.leftArrow || ["1", "2", "3"].includes(input))) {
+    else if (screen.kind === "course" && (key.tab || key.rightArrow || key.leftArrow || TAB_KEYS.includes(input))) {
       const i = TABS.findIndex((t) => t.key === screen.tab);
-      const next = ["1", "2", "3"].includes(input)
+      const next = TAB_KEYS.includes(input)
         ? TABS[Number(input) - 1]!
         : TABS[(i + (key.leftArrow || key.shift ? TABS.length - 1 : 1)) % TABS.length]!;
       go({ ...screen, tab: next.key });
@@ -610,7 +646,13 @@ export function App({ lms }: { lms: Lms }) {
               cursor={cursor}
               height={inner.height}
               width={inner.width}
-              empty={screen.tab === "materials" ? "등록된 강의자료가 없습니다. `openlms sync --learningx`로 LearningX 자료를 받을 수 있습니다." : "항목이 없습니다."}
+              empty={
+                screen.tab === "materials"
+                  ? "등록된 강의자료가 없습니다. `openlms sync --learningx`로 LearningX 자료를 받을 수 있습니다."
+                  : screen.tab === "boards"
+                    ? "게시글이 없습니다 (LearningX 게시판이 없는 과목일 수 있습니다)."
+                    : "항목이 없습니다."
+              }
             />
           )}
         </Panel>
