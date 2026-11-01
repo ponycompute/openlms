@@ -24,9 +24,27 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Opens or updates the release PR from conventional commits on main. Merging
+  # that PR bumps the version, updates CHANGELOG.md, tags and creates the
+  # GitHub release; the publish job below then ships it to npm. Tags made with
+  # GITHUB_TOKEN do not trigger workflows, so publishing has to happen here.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@v4
+
+  publish:
+    # A release from release-please, or a manually pushed v* tag.
+    if: ${{ !cancelled() && needs.test.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || needs.release.outputs.created == 'true') }}
+    needs: [test, release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
