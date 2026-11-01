@@ -41,7 +41,7 @@ function print(json: boolean | undefined, data: unknown, render: () => string): 
 
 program
   .name("lms")
-  .description("Canvas/LearningX LMS: local sync, search, TUI and MCP server")
+  .description("OpenLMS — Canvas/LearningX LMS: local sync, search, TUI and MCP server")
   .version(VERSION)
   .option("--delay <ms>", "minimum delay between API requests", (v) => Number(v))
   .option("--allow-grades", "allow grade/submission endpoints (disabled by default)");

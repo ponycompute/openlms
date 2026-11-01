@@ -1,8 +1,8 @@
-# lms-mcp
+# OpenLMS
 
-Canvas / LearningX 계열 대학 LMS의 강의자료를 **내 컴퓨터에** 동기화하고, 어떤 AI 클라이언트(Claude, Cursor 등)에서든 **강의자료 맥락으로 질문**할 수 있게 해 주는 로컬 도구입니다.
+**OpenLMS**는 Canvas / LearningX 계열 대학 LMS의 강의자료를 **내 컴퓨터에** 동기화하고, 어떤 AI 클라이언트(Claude, Cursor 등)에서든 **강의자료 맥락으로 질문**할 수 있게 해 주는 로컬 도구입니다.
 
-명령 하나(`lms`)로 CLI, TUI, MCP 서버(stdio)를 모두 제공합니다.
+명령 하나(`lms`)로 CLI, TUI, MCP 서버(stdio)를 모두 제공합니다. `lms`라는 이름이 다른 도구(예: LM Studio CLI)와 겹치면 같은 명령인 `openlms`를 쓰면 됩니다.
 
 - 활성 과목의 파일을 `~/.lms/`에 **증분 다운로드**
 - PDF / PPTX / DOCX / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
@@ -26,13 +26,13 @@ Canvas / LearningX 계열 대학 LMS의 강의자료를 **내 컴퓨터에** 동
 Node.js **22.13 이상**이 필요합니다 (내장 `node:sqlite` 사용 — 네이티브 SQLite 빌드 불필요).
 
 ```bash
-npm install -g lms-mcp
+npm install -g openlms
 ```
 
 소스에서 설치:
 
 ```bash
-git clone <this repo> && cd lms-mcp
+git clone <this repo> && cd openlms
 npm install && npm run build && npm link
 ```
 
@@ -107,7 +107,7 @@ lms tui
 ```json
 {
   "mcpServers": {
-    "lms": {
+    "openlms": {
       "command": "lms",
       "args": ["mcp"]
     }
@@ -121,7 +121,7 @@ lms tui
 ### Claude Code
 
 ```bash
-claude mcp add lms --scope user -- lms mcp
+claude mcp add openlms --scope user -- lms mcp
 ```
 
 ### Cursor
@@ -131,7 +131,7 @@ claude mcp add lms --scope user -- lms mcp
 ```json
 {
   "mcpServers": {
-    "lms": {
+    "openlms": {
       "command": "lms",
       "args": ["mcp"]
     }

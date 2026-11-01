@@ -2,7 +2,7 @@
 // Credential Manager, Linux Secret Service). Nothing is written to disk.
 import { Entry } from "@napi-rs/keyring";
 
-const SERVICE = "lms-mcp";
+const SERVICE = "openlms";
 const BASE_URL_KEY = "base_url";
 const TOKEN_KEY = "token";
 

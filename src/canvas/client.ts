@@ -38,7 +38,7 @@ export const defaultClientOptions: ClientOptions = {
 };
 
 const BLOCKED_PATH = /\/(submissions|grades|gradebook|outcome_results|enrollments\/[^/]+\/grades)(\/|$|\?)/i;
-const USER_AGENT = "lms-mcp/0.1 (+local student tool)";
+const USER_AGENT = "OpenLMS/0.1 (+local student tool)";
 
 export function normalizeBaseUrl(raw: string): URL {
   let value = raw.trim();

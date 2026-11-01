@@ -1,10 +1,11 @@
 {
-  "name": "lms-mcp",
+  "name": "openlms",
   "version": "0.1.0",
-  "description": "Local Canvas/LearningX LMS sync + search tool with CLI, TUI and MCP (stdio) server",
+  "description": "OpenLMS — local Canvas/LearningX LMS sync + search with CLI, TUI and MCP (stdio) server",
   "type": "module",
   "bin": {
-    "lms": "dist/cli.js"
+    "lms": "dist/cli.js",
+    "openlms": "dist/cli.js"
   },
   "files": [
     "dist"
@@ -37,6 +38,7 @@
     "typescript": "^7.0.2"
   },
   "keywords": [
+    "openlms",
     "canvas",
     "lms",
     "learningx",

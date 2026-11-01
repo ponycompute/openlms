@@ -27,7 +27,7 @@ async function guard(fn: () => Promise<CallToolResult> | CallToolResult): Promis
 
 export function createMcpServer(lms: Lms): McpServer {
   const server = new McpServer(
-    { name: "lms-mcp", version: VERSION },
+    { name: "openlms", title: "OpenLMS", version: VERSION },
     {
       instructions:
         "Tools for the student's Canvas/LearningX LMS. Use search_materials to find relevant lecture content, then read_material for the full text, and cite the file name. Data comes from a local cache; run `lms sync` in a terminal for a full refresh.",
@@ -166,5 +166,5 @@ export async function runMcpServer(opts: LmsOptions = {}): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
   await server.connect(new StdioServerTransport());
-  process.stderr.write(`lms-mcp ${VERSION} ready on stdio\n`);
+  process.stderr.write(`OpenLMS ${VERSION} ready on stdio\n`);
 }
