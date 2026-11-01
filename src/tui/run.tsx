@@ -4,7 +4,7 @@ import { App } from "./App.js";
 
 export async function runTui(opts: LmsOptions = {}): Promise<void> {
   if (!process.stdin.isTTY) {
-    throw new Error("`lms tui` needs an interactive terminal");
+    throw new Error("`openlms tui` needs an interactive terminal");
   }
   const lms = new Lms(opts);
   try {

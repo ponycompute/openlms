@@ -4,7 +4,6 @@
   "description": "OpenLMS — local Canvas/LearningX LMS sync + search with CLI, TUI and MCP (stdio) server",
   "type": "module",
   "bin": {
-    "lms": "dist/cli.js",
     "openlms": "dist/cli.js"
   },
   "files": [

@@ -2,7 +2,7 @@
 
 **OpenLMS**는 Canvas / LearningX 계열 대학 LMS의 강의자료를 **내 컴퓨터에** 동기화하고, 어떤 AI 클라이언트(Claude, Cursor 등)에서든 **강의자료 맥락으로 질문**할 수 있게 해 주는 로컬 도구입니다.
 
-명령 하나(`lms`)로 CLI, TUI, MCP 서버(stdio)를 모두 제공합니다. `lms`라는 이름이 다른 도구(예: LM Studio CLI)와 겹치면 같은 명령인 `openlms`를 쓰면 됩니다.
+명령 하나(`openlms`)로 CLI, TUI, MCP 서버(stdio)를 모두 제공합니다.
 
 - 활성 과목의 파일을 `~/.lms/`에 **증분 다운로드**
 - PDF / PPTX / DOCX / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
@@ -45,7 +45,7 @@ LMS 웹 → **계정 → 설정 → 승인된 통합 → `+ 새 액세스 토큰
 ### 2. 로그인
 
 ```bash
-lms login
+openlms login
 ```
 
 base URL(예: `https://canvas.ssu.ac.kr`)과 토큰을 입력하면 `/api/v1/users/self`로 검증한 뒤 키체인에 저장합니다.
@@ -53,7 +53,7 @@ base URL(예: `https://canvas.ssu.ac.kr`)과 토큰을 입력하면 `/api/v1/use
 ### 3. 동기화
 
 ```bash
-lms sync
+openlms sync
 ```
 
 처음엔 모든 파일을 받고, 이후엔 `updated_at`/크기가 바뀐 파일만 다시 받습니다. LMS에서 사라진 파일은 로컬에서도 삭제됩니다. 학생에게 "파일" 탭이 숨겨진 과목(403)은 **모듈에 올라온 파일**로 대신 수집합니다.
@@ -62,25 +62,27 @@ lms sync
 
 | 명령 | 설명 |
 | --- | --- |
-| `lms login [--url URL]` | base URL·토큰 입력, 검증 후 키체인 저장 |
-| `lms logout` | 키체인에서 자격 증명 삭제 |
-| `lms status` | 로그인 상태·캐시 요약 |
-| `lms sync [--course ID] [--metadata-only] [--max-size MB]` | 증분 다운로드 + 텍스트 추출 + 인덱싱 |
-| `lms courses` | 활성 과목 |
-| `lms files [--course ID]` | 강의자료 목록 (텍스트 추출 상태 포함) |
-| `lms assignments [--course ID] [--upcoming] [--days N]` | 과제 (마감순) |
-| `lms announcements [--course ID] [--limit N]` | 최근 공지 |
-| `lms search <query...> [--course ID]` | 로컬 인덱스 전문 검색 |
-| `lms read <fileId>` | 자료의 추출 텍스트 출력 (없으면 즉시 받아서 추출) |
-| `lms tui` | 터미널 UI |
-| `lms mcp` | stdio MCP 서버 |
+| `openlms login [--url URL]` | base URL·토큰 입력, 검증 후 키체인 저장 |
+| `openlms logout` | 키체인에서 자격 증명 삭제 |
+| `openlms status` | 로그인 상태·캐시 요약 |
+| `openlms sync [--course ID] [--metadata-only] [--max-size MB]` | 증분 다운로드 + 텍스트 추출 + 인덱싱 |
+| `openlms courses` | 활성 과목 |
+| `openlms files [--course ID]` | 강의자료 목록 (텍스트 추출 상태 포함) |
+| `openlms assignments [--course ID] [--upcoming] [--days N]` | 과제 (마감순) |
+| `openlms announcements [--course ID] [--limit N]` | 최근 공지 |
+| `openlms search <query...> [--course ID]` | 로컬 인덱스 전문 검색 |
+| `openlms read <fileId>` | 자료의 추출 텍스트 출력 (없으면 즉시 받아서 추출) |
+| `openlms tui` | 터미널 UI |
+| `openlms mcp` | stdio MCP 서버 |
+
+> 짧게 쓰고 싶다면 셸에 `alias lms=openlms`를 추가하세요. (패키지가 `lms` 명령을 직접 설치하지 않는 이유는 LM Studio CLI 등 같은 이름의 도구를 가리지 않기 위해서입니다.)
 
 조회 명령은 모두 `--json`, `--refresh`(API에서 새로 가져오기)를 지원합니다. 전역 옵션: `--delay <ms>`, `--allow-grades`.
 
 ### TUI
 
 ```bash
-lms tui
+openlms tui
 ```
 
 - 첫 화면: **7일 내 마감 과제 대시보드**(24시간 이내 빨강, 72시간 이내 노랑) + 과목 목록
@@ -98,7 +100,7 @@ lms tui
 | `list_assignments` | `course_id?`, `upcoming_only?`, `within_days?`, `refresh?` | 마감순 과제 |
 | `get_announcements` | `course_id?`, `limit?`, `refresh?` | 최근 공지 |
 
-모든 툴은 `readOnlyHint: true`입니다. 대량 동기화는 MCP가 아니라 터미널의 `lms sync`로 하세요.
+모든 툴은 `readOnlyHint: true`입니다. 대량 동기화는 MCP가 아니라 터미널의 `openlms sync`로 하세요.
 
 ### Claude Desktop
 
@@ -108,20 +110,20 @@ lms tui
 {
   "mcpServers": {
     "openlms": {
-      "command": "lms",
+      "command": "openlms",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-> macOS에서 nvm 등으로 Node를 설치했다면 GUI 앱은 셸 `PATH`를 모를 수 있습니다. 그럴 땐 `which lms`, `which node`로 확인한 **절대 경로**를 쓰세요:
-> `"command": "/Users/me/.nvm/versions/node/v22.17.0/bin/node", "args": ["/Users/me/.nvm/versions/node/v22.17.0/bin/lms", "mcp"]`
+> macOS에서 nvm 등으로 Node를 설치했다면 GUI 앱은 셸 `PATH`를 모를 수 있습니다. 그럴 땐 `which openlms`, `which node`로 확인한 **절대 경로**를 쓰세요:
+> `"command": "/Users/me/.nvm/versions/node/v22.17.0/bin/node", "args": ["/Users/me/.nvm/versions/node/v22.17.0/bin/openlms", "mcp"]`
 
 ### Claude Code
 
 ```bash
-claude mcp add openlms --scope user -- lms mcp
+claude mcp add openlms --scope user -- openlms mcp
 ```
 
 ### Cursor
@@ -132,7 +134,7 @@ claude mcp add openlms --scope user -- lms mcp
 {
   "mcpServers": {
     "openlms": {
-      "command": "lms",
+      "command": "openlms",
       "args": ["mcp"]
     }
   }

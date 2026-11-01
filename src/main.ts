@@ -40,7 +40,7 @@ function print(json: boolean | undefined, data: unknown, render: () => string): 
 }
 
 program
-  .name("lms")
+  .name("openlms")
   .description("OpenLMS — Canvas/LearningX LMS: local sync, search, TUI and MCP server")
   .version(VERSION)
   .option("--delay <ms>", "minimum delay between API requests", (v) => Number(v))
@@ -95,7 +95,7 @@ program
       };
       print(opts.json, data, () =>
         [
-          `로그인:      ${data.loggedIn ? `예 (${baseUrl})` : "아니오 — lms login"}`,
+          `로그인:      ${data.loggedIn ? `예 (${baseUrl})` : "아니오 — openlms login"}`,
           `데이터 위치: ${data.home}`,
           `마지막 동기화: ${data.lastSync ?? "없음"}`,
           `과목 ${data.courses}개 · 파일 ${data.files}개 · 텍스트 인덱싱 ${data.indexed}개`,
@@ -160,7 +160,7 @@ program
       const files = opts.course ? await lms.materials(opts.course, { refresh: opts.refresh }) : lms.store.files();
       print(opts.json, files, () =>
         files.length === 0
-          ? "파일이 없습니다. `lms sync`를 먼저 실행하세요."
+          ? "파일이 없습니다. `openlms sync`를 먼저 실행하세요."
           : table(
               ["ID", "과목", "파일", "크기", "텍스트"],
               files.map((f) => [String(f.id), f.courseName ?? "", f.name, formatBytes(f.size), f.textStatus || "pending"]),

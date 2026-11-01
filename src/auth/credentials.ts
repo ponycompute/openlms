@@ -13,7 +13,7 @@ export interface Credentials {
 
 export class NotLoggedInError extends Error {
   constructor() {
-    super("Not logged in. Run `lms login` first.");
+    super("Not logged in. Run `openlms login` first.");
     this.name = "NotLoggedInError";
   }
 }

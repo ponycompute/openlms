@@ -163,7 +163,7 @@ export class CanvasClient {
         }
         if (status === 401) {
           await response.body?.cancel();
-          throw new CanvasError("Unauthorized (401): token invalid or expired. Run `lms login`.", "unauthorized", 401);
+          throw new CanvasError("Unauthorized (401): token invalid or expired. Run `openlms login`.", "unauthorized", 401);
         }
         if (status === 404) {
           await response.body?.cancel();

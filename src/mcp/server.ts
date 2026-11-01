@@ -30,7 +30,7 @@ export function createMcpServer(lms: Lms): McpServer {
     { name: "openlms", title: "OpenLMS", version: VERSION },
     {
       instructions:
-        "Tools for the student's Canvas/LearningX LMS. Use search_materials to find relevant lecture content, then read_material for the full text, and cite the file name. Data comes from a local cache; run `lms sync` in a terminal for a full refresh.",
+        "Tools for the student's Canvas/LearningX LMS. Use search_materials to find relevant lecture content, then read_material for the full text, and cite the file name. Data comes from a local cache; run `openlms sync` in a terminal for a full refresh.",
     },
   );
 
@@ -107,7 +107,7 @@ export function createMcpServer(lms: Lms): McpServer {
       guard(() => {
         const hits = lms.search(query, { courseId: course_id, limit: limit ?? 10 });
         if (hits.length === 0 && lms.store.files().length === 0) {
-          return ok({ results: [], note: "The local index is empty. Ask the user to run `lms sync`." });
+          return ok({ results: [], note: "The local index is empty. Ask the user to run `openlms sync`." });
         }
         return ok({ results: hits });
       }),
