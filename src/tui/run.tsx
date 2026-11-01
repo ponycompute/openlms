@@ -8,7 +8,7 @@ export async function runTui(opts: LmsOptions = {}): Promise<void> {
   }
   const lms = new Lms(opts);
   try {
-    const instance = render(<App lms={lms} />);
+    const instance = render(<App lms={lms} />, { alternateScreen: true });
     await instance.waitUntilExit();
   } finally {
     lms.close();

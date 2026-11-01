@@ -2,7 +2,7 @@
 // cache-first; the API is contacted only when the cache has nothing yet
 // (or on an explicit refresh / sync).
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { CanvasApi, type CanvasAnnouncement, type CanvasAssignment, type CanvasCourse, type CanvasFile } from "./canvas/api.js";
@@ -60,6 +60,14 @@ export interface ImportReport {
   imported: FileRow[];
   unchanged: string[];
   skipped: { path: string; reason: string }[];
+}
+
+/** Colors that make the TUI look like the school's Canvas. */
+export interface Theme {
+  /** Global navigation background (school brand color). */
+  brand: string;
+  /** Dashboard card color per course ID, when the student picked one. */
+  courseColors: Record<number, string>;
 }
 
 export interface MaterialText {
@@ -167,6 +175,32 @@ export class Lms {
   }
 
   // ---- cache-first reads ----
+
+  /** Theme colors, fetched once and cached; falls back to Canvas defaults. */
+  async theme(opts: { refresh?: boolean } = {}): Promise<Theme> {
+    const cached = this.store.meta("theme");
+    if (cached && !opts.refresh) {
+      return JSON.parse(cached) as Theme;
+    }
+    const theme: Theme = { brand: "#394B58", courseColors: {} };
+    try {
+      const api = await this.api();
+      const [brand, colors] = await Promise.all([api.brandVariables(), api.customColors()]);
+      theme.brand = brand["ic-brand-global-nav-bgd"] || theme.brand;
+      for (const [key, color] of Object.entries(colors)) {
+        const id = /^course_(\d+)$/.exec(key)?.[1];
+        if (id) {
+          theme.courseColors[Number(id)] = color;
+        }
+      }
+      this.store.setMeta("theme", JSON.stringify(theme));
+    } catch {
+      // Cosmetic only: keep the defaults and try again next time.
+    }
+    return theme;
+  }
+
+
 
   async courses(opts: { refresh?: boolean } = {}): Promise<Course[]> {
     let courses = this.store.courses();
@@ -438,6 +472,7 @@ export class Lms {
       textStatus: prev?.textStatus ?? "",
       source: "learningx",
       remoteUrl: pdf.viewUrl,
+      module: pdf.module,
     };
   }
 
@@ -509,6 +544,47 @@ export class Lms {
 
   /** Full incremental sync of active courses into ~/.lms. */
   async sync(opts: SyncOptions = {}): Promise<SyncReport> {
+    const release = this.acquireSyncLock();
+    try {
+      return await this.syncLocked(opts);
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * One sync at a time per data directory: the TUI `s` key and a terminal
+   * `openlms sync` may otherwise run together. A lock left by a dead process is taken over.
+   */
+  private acquireSyncLock(): () => void {
+    const path = join(this.home, "sync.lock");
+    try {
+      writeFileSync(path, String(process.pid), { flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw err;
+      }
+      const owner = Number(readFileSync(path, "utf8"));
+      if (owner && owner !== process.pid && processAlive(owner)) {
+        throw new Error(`Another sync is already running (pid ${owner})`);
+      }
+      if (owner === process.pid) {
+        throw new Error("A sync is already running");
+      }
+      writeFileSync(path, String(process.pid));
+    }
+    return () => {
+      try {
+        if (Number(readFileSync(path, "utf8")) === process.pid) {
+          rmSync(path);
+        }
+      } catch {
+        // Already gone.
+      }
+    };
+  }
+
+  private async syncLocked(opts: SyncOptions): Promise<SyncReport> {
     const log = opts.onProgress ?? (() => {});
     const report: SyncReport = {
       courses: 0,
@@ -599,6 +675,9 @@ export class Lms {
       }
     }
 
+    if (opts.signal?.aborted) {
+      return report;
+    }
     log("Fetching announcements…");
     try {
       report.announcements = await this.refreshAnnouncements(courses.map((c) => c.id), opts.signal);
@@ -607,5 +686,14 @@ export class Lms {
     }
     this.store.setMeta("last_sync", new Date().toISOString());
     return report;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }

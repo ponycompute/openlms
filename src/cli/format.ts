@@ -1,19 +1,9 @@
 // Terminal formatting helpers that account for double-width CJK glyphs.
+import stringWidth from "string-width";
 
+/** Cells a character takes, measured the way Ink measures it so layouts agree. */
 export function charWidth(codePoint: number): number {
-  if (
-    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
-    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
-    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-    (codePoint >= 0xfe30 && codePoint <= 0xfe4f) ||
-    (codePoint >= 0xff00 && codePoint <= 0xff60) ||
-    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-    (codePoint >= 0x1f300 && codePoint <= 0x1faff)
-  ) {
-    return 2;
-  }
-  return 1;
+  return stringWidth(String.fromCodePoint(codePoint));
 }
 
 export function displayWidth(s: string): number {

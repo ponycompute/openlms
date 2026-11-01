@@ -88,6 +88,17 @@ export class CanvasApi {
     return this.client.getJson<CanvasUser>("/api/v1/users/self", undefined, signal);
   }
 
+  /** The school's theme colors (public brand config). */
+  brandVariables(signal?: AbortSignal): Promise<Record<string, string>> {
+    return this.client.getJson<Record<string, string>>("/api/v1/brand_variables", undefined, signal);
+  }
+
+  /** Dashboard card colors the student picked, keyed like "course_123". */
+  async customColors(signal?: AbortSignal): Promise<Record<string, string>> {
+    const res = await this.client.getJson<{ custom_colors?: Record<string, string> }>("/api/v1/users/self/colors", undefined, signal);
+    return res.custom_colors ?? {};
+  }
+
   async activeCourses(signal?: AbortSignal): Promise<CanvasCourse[]> {
     const courses = await this.client.getAll<CanvasCourse>(
       "/api/v1/courses",

@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS meta (
 const MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: "files", column: "source", ddl: "ALTER TABLE files ADD COLUMN source TEXT NOT NULL DEFAULT 'canvas'" },
   { table: "files", column: "remote_url", ddl: "ALTER TABLE files ADD COLUMN remote_url TEXT NOT NULL DEFAULT ''" },
+  { table: "files", column: "module", ddl: "ALTER TABLE files ADD COLUMN module TEXT NOT NULL DEFAULT ''" },
 ];
 
 export type TextStatus = "" | "ok" | "empty" | "unsupported" | "too_large" | "error";
@@ -101,6 +102,8 @@ export interface FileRow {
   source?: FileSource;
   /** LearningX viewer URL the file is downloaded from. */
   remoteUrl?: string;
+  /** Module (week) the file belongs to, when known. */
+  module?: string;
 }
 
 /** An external-tool module item (LearningX content) that can only be opened in a browser. */
@@ -154,7 +157,7 @@ type Row = Record<string, unknown>;
 const nowIso = () => new Date().toISOString();
 
 const FILE_SELECT = `SELECT f.id, f.course_id, COALESCE(c.name, '') AS course_name, f.name, f.content_type,
-  f.size, f.updated_at, f.local_path, f.text_status, f.source, f.remote_url
+  f.size, f.updated_at, f.local_path, f.text_status, f.source, f.remote_url, f.module
   FROM files f LEFT JOIN courses c ON c.id = f.course_id`;
 
 function toFile(r: Row): FileRow {
@@ -170,6 +173,7 @@ function toFile(r: Row): FileRow {
     textStatus: String(r.text_status) as TextStatus,
     source: String(r.source) as FileSource,
     remoteUrl: String(r.remote_url ?? ""),
+    module: String(r.module ?? ""),
   };
 }
 
@@ -272,14 +276,14 @@ export class Store {
   upsertFile(f: FileRow): void {
     this.db
       .prepare(
-        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, source, remote_url, synced_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, source, remote_url, module, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET course_id = excluded.course_id, name = excluded.name,
            content_type = excluded.content_type, size = excluded.size, updated_at = excluded.updated_at,
            local_path = excluded.local_path, text_status = excluded.text_status, source = excluded.source,
-           remote_url = excluded.remote_url, synced_at = excluded.synced_at`,
+           remote_url = excluded.remote_url, module = excluded.module, synced_at = excluded.synced_at`,
       )
-      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, f.source ?? "canvas", f.remoteUrl ?? "", nowIso());
+      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, f.source ?? "canvas", f.remoteUrl ?? "", f.module ?? "", nowIso());
   }
 
   /**

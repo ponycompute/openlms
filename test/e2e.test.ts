@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,6 +94,17 @@ describe("sync, cache and MCP", () => {
     assert.equal(report.assignments, 4);
     assert.equal(report.announcements, 1);
     assert.deepEqual(lms.store.files(2).map((f) => f.name), ["자료구조_해시.docx"]);
+  });
+
+  it("runs one sync at a time and takes over a stale lock", async () => {
+    const [first, second] = await Promise.allSettled([lms.sync({ metadataOnly: true }), lms.sync({ metadataOnly: true })]);
+    assert.equal(first.status, "fulfilled");
+    assert.equal(second.status, "rejected");
+    // A lock left by a process that no longer exists.
+    writeFileSync(join(home, "sync.lock"), "999999");
+    const report = await lms.sync({ metadataOnly: true });
+    assert.deepEqual(report.errors, []);
+    assert.equal(existsSync(join(home, "sync.lock")), false);
   });
 
   it("never forwards the token to the redirect host", () => {
