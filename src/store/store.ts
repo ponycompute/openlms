@@ -52,13 +52,29 @@ CREATE TABLE IF NOT EXISTS announcements (
   author    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS announcements_course ON announcements(course_id);
+CREATE TABLE IF NOT EXISTS links (
+  id        INTEGER PRIMARY KEY,
+  course_id INTEGER NOT NULL,
+  module    TEXT NOT NULL DEFAULT '',
+  title     TEXT NOT NULL,
+  html_url  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS links_course ON links(course_id);
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 `;
 
+/** Columns added after 0.1.0; applied to existing databases on open. */
+const MIGRATIONS: { table: string; column: string; ddl: string }[] = [
+  { table: "files", column: "source", ddl: "ALTER TABLE files ADD COLUMN source TEXT NOT NULL DEFAULT 'canvas'" },
+];
+
 export type TextStatus = "" | "ok" | "empty" | "unsupported" | "too_large" | "error";
+
+/** "canvas" files mirror the LMS; "import" files were added by `openlms import`. */
+export type FileSource = "canvas" | "import";
 
 export interface Course {
   id: number;
@@ -78,6 +94,16 @@ export interface FileRow {
   updatedAt: string;
   localPath: string;
   textStatus: TextStatus;
+  source?: FileSource;
+}
+
+/** An external-tool module item (LearningX content) that can only be opened in a browser. */
+export interface Link {
+  id: number;
+  courseId: number;
+  module: string;
+  title: string;
+  htmlUrl: string;
 }
 
 export interface Assignment {
@@ -122,7 +148,7 @@ type Row = Record<string, unknown>;
 const nowIso = () => new Date().toISOString();
 
 const FILE_SELECT = `SELECT f.id, f.course_id, COALESCE(c.name, '') AS course_name, f.name, f.content_type,
-  f.size, f.updated_at, f.local_path, f.text_status
+  f.size, f.updated_at, f.local_path, f.text_status, f.source
   FROM files f LEFT JOIN courses c ON c.id = f.course_id`;
 
 function toFile(r: Row): FileRow {
@@ -136,6 +162,7 @@ function toFile(r: Row): FileRow {
     updatedAt: String(r.updated_at),
     localPath: String(r.local_path),
     textStatus: String(r.text_status) as TextStatus,
+    source: String(r.source) as FileSource,
   };
 }
 
@@ -175,6 +202,12 @@ export class Store {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.db.exec(SCHEMA);
+    for (const m of MIGRATIONS) {
+      const columns = this.db.prepare(`PRAGMA table_info(${m.table})`).all() as Row[];
+      if (!columns.some((c) => c.name === m.column)) {
+        this.db.exec(m.ddl);
+      }
+    }
   }
 
   close(): void {
@@ -232,32 +265,40 @@ export class Store {
   upsertFile(f: FileRow): void {
     this.db
       .prepare(
-        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, synced_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO files (id, course_id, name, content_type, size, updated_at, local_path, text_status, source, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET course_id = excluded.course_id, name = excluded.name,
            content_type = excluded.content_type, size = excluded.size, updated_at = excluded.updated_at,
-           local_path = excluded.local_path, text_status = excluded.text_status, synced_at = excluded.synced_at`,
+           local_path = excluded.local_path, text_status = excluded.text_status, source = excluded.source,
+           synced_at = excluded.synced_at`,
       )
-      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, nowIso());
+      .run(f.id, f.courseId, f.name, f.contentType, f.size, f.updatedAt, f.localPath, f.textStatus, f.source ?? "canvas", nowIso());
   }
 
-  /** Removes cached files of a course not in `keep`; returns their local paths. */
+  /**
+   * Removes cached Canvas files of a course not in `keep`; returns their
+   * local paths. Imported files are never pruned by a Canvas refresh.
+   */
   pruneFiles(courseId: number, keep: Set<number>): string[] {
     const removed: string[] = [];
     for (const f of this.files(courseId)) {
-      if (keep.has(f.id)) {
+      if (keep.has(f.id) || f.source === "import") {
         continue;
       }
-      this.tx(() => {
-        this.db.prepare("DELETE FROM files WHERE id = ?").run(f.id);
-        this.db.prepare("DELETE FROM file_text WHERE file_id = ?").run(f.id);
-        this.db.prepare("DELETE FROM materials_fts WHERE file_id = ?").run(f.id);
-      });
+      this.deleteFile(f.id);
       if (f.localPath) {
         removed.push(f.localPath);
       }
     }
     return removed;
+  }
+
+  deleteFile(id: number): void {
+    this.tx(() => {
+      this.db.prepare("DELETE FROM files WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM file_text WHERE file_id = ?").run(id);
+      this.db.prepare("DELETE FROM materials_fts WHERE file_id = ?").run(id);
+    });
   }
 
   setText(fileId: number, courseId: number, name: string, text: string): void {
@@ -412,6 +453,29 @@ export class Store {
       postedAt: r.posted_at == null ? null : String(r.posted_at),
       htmlUrl: String(r.html_url),
       author: String(r.author),
+    }));
+  }
+
+  // ---- links ----
+
+  replaceLinks(courseId: number, links: Omit<Link, "courseId">[]): void {
+    const insert = this.db.prepare("INSERT OR REPLACE INTO links (id, course_id, module, title, html_url) VALUES (?, ?, ?, ?, ?)");
+    this.tx(() => {
+      this.db.prepare("DELETE FROM links WHERE course_id = ?").run(courseId);
+      for (const l of links) {
+        insert.run(l.id, courseId, l.module, l.title, l.htmlUrl);
+      }
+    });
+  }
+
+  links(courseId: number): Link[] {
+    const rows = this.db.prepare("SELECT id, course_id, module, title, html_url FROM links WHERE course_id = ? ORDER BY rowid").all(courseId) as Row[];
+    return rows.map((r) => ({
+      id: Number(r.id),
+      courseId: Number(r.course_id),
+      module: String(r.module),
+      title: String(r.title),
+      htmlUrl: String(r.html_url),
     }));
   }
 

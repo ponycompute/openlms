@@ -126,7 +126,11 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
       return json(res, 401, { status: "권한이 없음", errors: [{ message: "사용자에게 이 동작을 수행할 권한이 없음" }] });
     }
     if (p === "/api/v1/courses/2/modules") {
-      return json(res, 200, [{ id: 9, name: "1주차", items: [{ id: 1, title: "해시", type: "File", content_id: 201 }, { id: 2, title: "링크", type: "ExternalUrl" }] }]);
+      return json(res, 200, [{ id: 9, name: "1주차", items: [
+        { id: 1, title: "해시", type: "File", content_id: 201 },
+        { id: 2, title: "링크", type: "ExternalUrl" },
+        { id: 3, title: "3주차 강의자료", type: "ExternalTool", html_url: `${base}/courses/2/modules/items/3` },
+      ] }]);
     }
     const fileMatch = /^\/api\/v1\/(?:courses\/\d+\/)?files\/(\d+)$/.exec(p);
     if (fileMatch) {

@@ -30,7 +30,7 @@ export function createMcpServer(lms: Lms): McpServer {
     { name: "openlms", title: "OpenLMS", version: VERSION },
     {
       instructions:
-        "Tools for the student's Canvas/LearningX LMS. Use search_materials to find relevant lecture content, then read_material for the full text, and cite the file name. Data comes from a local cache; run `openlms sync` in a terminal for a full refresh.",
+        "Tools for the student's Canvas/LearningX LMS. Use search_materials to find relevant lecture content, then read_material for the full text, and cite the file name. Data comes from a local cache; run `openlms sync` in a terminal for a full refresh. Materials published as LearningX content are listed by list_materials as links only; the user can download them and run `openlms import` to make them searchable.",
     },
   );
 
@@ -49,7 +49,8 @@ export function createMcpServer(lms: Lms): McpServer {
     "list_materials",
     {
       title: "List course materials",
-      description: "List files of a course with their text-extraction status. Use the returned id with read_material.",
+      description:
+        "List a course's files (with text-extraction status; use the id with read_material) and its LearningX items. LearningX items cannot be read by this server: give the user the html_url to open in a browser, and tell them they can index downloaded files with `openlms import <path> --course <id>`.",
       inputSchema: {
         course_id: z.number().int().describe("Course ID from list_courses"),
         refresh: z.boolean().optional().describe("Force refresh of the file list from the LMS"),
@@ -59,7 +60,16 @@ export function createMcpServer(lms: Lms): McpServer {
     ({ course_id, refresh }) =>
       guard(async () => {
         const files = await lms.materials(course_id, { refresh });
-        return ok(files.map(({ localPath: _localPath, ...f }) => f));
+        const links = await lms.links(course_id);
+        return ok({
+          files: files.map(({ localPath: _localPath, ...f }) => f),
+          learningx: links.map(({ courseId: _courseId, ...l }) => l),
+          ...(links.length > 0
+            ? {
+                note: "learningx items are hosted in LearningX and cannot be downloaded with the Canvas token. Share html_url so the user can open them; downloaded files can be added with `openlms import <path> --course <id>`.",
+              }
+            : {}),
+        });
       }),
   );
 

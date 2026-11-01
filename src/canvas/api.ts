@@ -52,7 +52,20 @@ export interface CanvasAnnouncement {
 interface CanvasModule {
   id: number;
   name: string;
-  items?: { id: number; title: string; type: string; content_id?: number }[];
+  items?: { id: number; title: string; type: string; content_id?: number; html_url?: string }[];
+}
+
+/** A module item that opens an external tool (LearningX content at most Korean schools). */
+export interface CanvasToolLink {
+  id: number;
+  module: string;
+  title: string;
+  htmlUrl: string;
+}
+
+export interface CourseMaterials {
+  files: CanvasFile[];
+  links: CanvasToolLink[];
 }
 
 function isHiddenError(err: unknown): boolean {
@@ -86,31 +99,41 @@ export class CanvasApi {
   }
 
   /**
-   * Lists course files. Many LearningX courses hide the Files tab from
-   * students (403); then File items are collected from modules instead.
+   * Lists course files plus external-tool module items. Many LearningX
+   * courses hide the Files tab from students; then File items are collected
+   * from modules instead. External-tool items (LearningX content) cannot be
+   * downloaded with a Canvas token, so they are returned as links.
    */
-  async courseFiles(courseId: number, signal?: AbortSignal): Promise<CanvasFile[]> {
+  async courseMaterials(courseId: number, signal?: AbortSignal): Promise<CourseMaterials> {
+    const modules = await this.modules(courseId, signal);
+    const links = modules.flatMap((m) =>
+      (m.items ?? [])
+        .filter((it) => it.type === "ExternalTool" && it.html_url)
+        .map((it) => ({ id: it.id, module: m.name, title: it.title, htmlUrl: it.html_url! })),
+    );
     try {
       const files = await this.client.getAll<CanvasFile>(`/api/v1/courses/${courseId}/files`, { sort: "updated_at" }, signal);
-      return visible(files);
+      return { files: visible(files), links };
     } catch (err) {
       if (!isHiddenError(err)) {
         throw err;
       }
     }
-    return this.moduleFiles(courseId, signal);
+    return { files: await this.moduleFiles(courseId, modules, signal), links };
   }
 
-  private async moduleFiles(courseId: number, signal?: AbortSignal): Promise<CanvasFile[]> {
-    let modules: CanvasModule[];
+  private async modules(courseId: number, signal?: AbortSignal): Promise<CanvasModule[]> {
     try {
-      modules = await this.client.getAll<CanvasModule>(`/api/v1/courses/${courseId}/modules`, { "include[]": "items" }, signal);
+      return await this.client.getAll<CanvasModule>(`/api/v1/courses/${courseId}/modules`, { "include[]": "items" }, signal);
     } catch (err) {
       if (isHiddenError(err)) {
         return [];
       }
       throw err;
     }
+  }
+
+  private async moduleFiles(courseId: number, modules: CanvasModule[], signal?: AbortSignal): Promise<CanvasFile[]> {
     const seen = new Set<number>();
     const files: CanvasFile[] = [];
     for (const module of modules) {

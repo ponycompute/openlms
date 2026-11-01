@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -9,8 +10,8 @@ import type { CredentialStore } from "../src/auth/credentials.js";
 import { CanvasClient, CanvasError, nextLink } from "../src/canvas/client.js";
 import { Lms } from "../src/lms.js";
 import { createMcpServer } from "../src/mcp/server.js";
-import { snippet } from "../src/store/store.js";
-import { startFakeCanvas, TOKEN, type FakeCanvas } from "./fake-canvas.js";
+import { snippet, Store } from "../src/store/store.js";
+import { makeDocx, startFakeCanvas, TOKEN, type FakeCanvas } from "./fake-canvas.js";
 
 const noSleep = { delayMs: 0, sleep: async () => {} };
 
@@ -174,6 +175,82 @@ describe("sync, cache and MCP", () => {
     const apiCalls = canvas.requests.slice(apiCallsBefore).map((r) => r.path);
     assert.ok(apiCalls.every((p) => p.startsWith("/api/v1/files/999999")), `unexpected API calls: ${apiCalls.join(", ")}`);
     await client.close();
+  });
+
+  it("lists LearningX items as links", async () => {
+    assert.deepEqual(
+      (await lms.links(2)).map((l) => [l.title, l.module]),
+      [["3주차 강의자료", "1주차"]],
+    );
+    assert.deepEqual(await lms.links(1), []);
+  });
+
+  it("imports local files, keeps them across syncs, and removes them", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lms-import-"));
+    try {
+      mkdirSync(join(dir, "week3"));
+      writeFileSync(join(dir, "week3", "트리_순회.docx"), makeDocx(["이진 트리 중위 순회와 후위 순회 비교"]));
+      writeFileSync(join(dir, "week3", "video.mp4"), "not indexed");
+      writeFileSync(join(dir, ".DS_Store"), "junk");
+
+      const report = await lms.importFiles(2, [dir]);
+      assert.equal(report.imported.length, 1);
+      assert.deepEqual(report.skipped.map((s) => s.reason), ["unsupported file type"]);
+      const id = report.imported[0]!.id;
+      assert.ok(id < 0);
+      assert.equal(lms.search("중위 순회")[0]?.fileId, id);
+
+      assert.equal((await lms.importFiles(2, [dir])).unchanged.length, 1);
+
+      const report2 = await lms.sync({ courseId: 2 });
+      assert.equal(report2.removed, 0);
+      assert.ok(lms.store.file(id), "imported file survives a Canvas refresh");
+
+      const apiCallsBefore = canvas.requests.length;
+      assert.match((await lms.readMaterial(id)).text, /후위 순회/);
+      assert.equal(canvas.requests.length, apiCallsBefore, "reading an imported file never calls the API");
+
+      await lms.removeImported(id);
+      assert.equal(lms.store.file(id), undefined);
+      assert.equal(lms.search("중위 순회").length, 0);
+      await assert.rejects(lms.removeImported(101), /not an imported file/);
+      await assert.rejects(lms.importFiles(999, [dir]), /not an active course/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns LearningX items from list_materials over MCP", async () => {
+    const server = createMcpServer(lms);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "1" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const result = await client.callTool({ name: "list_materials", arguments: { course_id: 2 } });
+    const data = JSON.parse((result.content as { text: string }[])[0]!.text);
+    assert.deepEqual(data.files.map((f: { name: string }) => f.name), ["자료구조_해시.docx"]);
+    assert.equal(data.learningx[0].title, "3주차 강의자료");
+    assert.match(data.note, /openlms import/);
+    await client.close();
+  });
+});
+
+describe("store migrations", () => {
+  it("adds the source column to a 0.1.0 database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lms-migrate-"));
+    try {
+      const path = join(dir, "lms.db");
+      const old = new DatabaseSync(path);
+      old.exec(`CREATE TABLE files (id INTEGER PRIMARY KEY, course_id INTEGER NOT NULL, name TEXT NOT NULL,
+        content_type TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT '',
+        local_path TEXT NOT NULL DEFAULT '', text_status TEXT NOT NULL DEFAULT '', synced_at TEXT NOT NULL DEFAULT '');
+        INSERT INTO files (id, course_id, name) VALUES (7, 1, 'old.pdf');`);
+      old.close();
+      const store = new Store(path);
+      assert.equal(store.file(7)?.source, "canvas");
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

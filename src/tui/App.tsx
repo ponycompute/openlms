@@ -2,7 +2,13 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayWidth, formatBytes, formatDue, truncate } from "../cli/format.js";
 import type { Lms } from "../lms.js";
-import type { Announcement, Assignment, Course, FileRow, SearchHit } from "../store/store.js";
+import type { Announcement, Assignment, Course, FileRow, Link, SearchHit } from "../store/store.js";
+import { openUrl } from "./open-url.js";
+
+interface Materials {
+  files: FileRow[];
+  links: Link[];
+}
 
 type Tab = "materials" | "assignments" | "announcements";
 const TABS: { key: Tab; label: string }[] = [
@@ -131,14 +137,15 @@ export function App({ lms }: { lms: Lms }) {
   );
 
   const courseKey = screen.kind === "course" ? `${screen.course.id}:${screen.tab}` : "-";
-  const courseData = useAsync<FileRow[] | Assignment[] | Announcement[] | undefined>(async () => {
+  const courseData = useAsync<Materials | Assignment[] | Announcement[] | undefined>(async () => {
     if (screen.kind !== "course") {
       return undefined;
     }
     const id = screen.course.id;
     const refresh = takeRefresh(courseKey);
     if (screen.tab === "materials") {
-      return lms.materials(id, { refresh });
+      const files = await lms.materials(id, { refresh });
+      return { files, links: await lms.links(id) };
     }
     if (screen.tab === "assignments") {
       return lms.assignments({ courseId: id }, { refresh });
@@ -179,13 +186,29 @@ export function App({ lms }: { lms: Lms }) {
     }
     if (screen.kind === "course" && courseData.data) {
       if (screen.tab === "materials") {
-        return (courseData.data as FileRow[]).map((f) => ({
+        const { files, links } = courseData.data as Materials;
+        const fileItems: ListItem[] = files.map((f) => ({
           key: `f${f.id}`,
-          label: f.name,
+          label: f.source === "import" ? `${f.name} (가져옴)` : f.name,
           hint: `${formatBytes(f.size)} · ${f.textStatus || "미동기화"}`,
           color: f.textStatus === "ok" ? undefined : "gray",
           open: () => openMaterial(f.id),
         }));
+        const linkItems: ListItem[] = links.map((l) => ({
+          key: `l${l.id}`,
+          label: `↗ ${l.title}`,
+          hint: `LearningX · ${l.module}`,
+          color: "blue",
+          enter: () => {
+            try {
+              openUrl(l.htmlUrl);
+              setStatus(`브라우저에서 열었습니다: ${l.title}`);
+            } catch (err) {
+              setStatus(`✗ ${err instanceof Error ? err.message : String(err)}`);
+            }
+          },
+        }));
+        return [...fileItems, ...linkItems];
       }
       if (screen.tab === "assignments") {
         return (courseData.data as Assignment[]).map((a) => ({
@@ -212,6 +235,9 @@ export function App({ lms }: { lms: Lms }) {
     return [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, courses.data, courseData.data, hits]);
+
+  const showLinkHint =
+    screen.kind === "course" && screen.tab === "materials" && !courseData.loading && Boolean((courseData.data as Materials | undefined)?.links.length);
 
   const detailLines = useMemo(
     () => (screen.kind === "detail" ? wrapLines(screen.body, Math.max(20, cols - 4)) : []),
@@ -370,13 +396,18 @@ export function App({ lms }: { lms: Lms }) {
         </Box>
         {courseData.loading && <Text dimColor>불러오는 중…</Text>}
         {courseData.error && <Text color="red">✗ {courseData.error}</Text>}
+        {showLinkHint && (
+          <Text dimColor wrap="truncate-end">
+            ↗ LearningX: enter로 브라우저에서 열기 · 받은 파일은 openlms import로 추가
+          </Text>
+        )}
         {!courseData.loading && (
           <SelectList
             items={items}
-            height={listHeight - 2}
+            height={listHeight - (showLinkHint ? 3 : 2)}
             cursor={cursor}
             width={cols}
-            empty={screen.tab === "materials" ? "Canvas 파일이 없습니다. 자료가 LearningX 콘텐츠로만 올라온 과목일 수 있습니다." : "(비어 있음)"}
+            empty={screen.tab === "materials" ? "자료가 없습니다." : "(비어 있음)"}
           />
         )}
       </Box>

@@ -56,7 +56,19 @@ base URL(예: `https://canvas.ssu.ac.kr`)과 토큰을 입력하면 `/api/v1/use
 openlms sync
 ```
 
-처음엔 모든 파일을 받고, 이후엔 `updated_at`/크기가 바뀐 파일만 다시 받습니다. LMS에서 사라진 파일은 로컬에서도 삭제됩니다. 학생에게 "파일" 탭이 숨겨진 과목(403)은 **모듈에 올라온 파일**로 대신 수집합니다.
+처음엔 모든 파일을 받고, 이후엔 `updated_at`/크기가 바뀐 파일만 다시 받습니다. LMS에서 사라진 파일은 로컬에서도 삭제됩니다. 학생에게 "파일" 탭이 숨겨진 과목은 **모듈에 올라온 파일**로 대신 수집합니다.
+
+### LearningX 콘텐츠
+
+많은 학교가 강의자료를 Canvas 파일이 아니라 **LearningX 콘텐츠**(외부 도구)로 올립니다. 이 콘텐츠는 Canvas 토큰으로 받을 수 없기 때문에 OpenLMS는 **링크로만** 보여 줍니다 (`openlms files --course ID`, TUI 자료 탭, MCP `list_materials`). TUI에서는 `enter`로 브라우저에서 열 수 있습니다.
+
+브라우저에서 받은 자료는 직접 가져와 다른 자료와 똑같이 검색·질문할 수 있습니다:
+
+```bash
+openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하위까지, PDF/PPTX/DOCX/텍스트만
+```
+
+가져온 파일은 음수 ID로 표시되고, Canvas 동기화로 지워지지 않습니다. 빼려면 `openlms unimport <fileId>`. 자세한 조사 내용은 [docs/learningx.md](docs/learningx.md)를 참고하세요.
 
 ## 명령
 
@@ -67,7 +79,9 @@ openlms sync
 | `openlms status` | 로그인 상태·캐시 요약 |
 | `openlms sync [--course ID] [--metadata-only] [--max-size MB]` | 증분 다운로드 + 텍스트 추출 + 인덱싱 |
 | `openlms courses` | 활성 과목 |
-| `openlms files [--course ID]` | 강의자료 목록 (텍스트 추출 상태 포함) |
+| `openlms files [--course ID]` | 강의자료 목록 (텍스트 추출 상태 포함). `--course`를 주면 LearningX 링크도 표시 |
+| `openlms import <paths...> --course ID` | 직접 받은 파일·폴더를 과목에 가져와 인덱싱 |
+| `openlms unimport <fileId>` | 가져온 파일을 인덱스에서 제거 |
 | `openlms assignments [--course ID] [--upcoming] [--days N]` | 과제 (마감순) |
 | `openlms announcements [--course ID] [--limit N]` | 최근 공지 |
 | `openlms search <query...> [--course ID]` | 로컬 인덱스 전문 검색 |
@@ -85,6 +99,7 @@ openlms tui
 
 - 첫 화면: **7일 내 마감 과제 대시보드**(24시간 이내 빨강, 72시간 이내 노랑) + 과목 목록
 - 과목 → `자료 / 과제 / 공지` 탭 (`tab`, `←/→`), `enter`로 본문/추출 텍스트 보기
+- 자료 탭의 `↗` 항목은 LearningX 콘텐츠로, `enter`를 누르면 브라우저에서 열립니다
 - `r` 현재 화면을 LMS에서 새로고침, `/` 전체 자료 검색, `esc` 뒤로, `q` 종료
 
 ## MCP 툴
@@ -92,7 +107,7 @@ openlms tui
 | 툴 | 입력 | 설명 |
 | --- | --- | --- |
 | `list_courses` | `refresh?` | 활성 과목 |
-| `list_materials` | `course_id`, `refresh?` | 과목 파일 목록 + 추출 상태 |
+| `list_materials` | `course_id`, `refresh?` | 과목 파일 목록 + 추출 상태, LearningX 항목(`learningx`: 제목·모듈·`html_url`) |
 | `read_material` | `file_id`, `offset?`, `max_chars?` | 추출 텍스트 (긴 문서는 `offset`으로 페이지 넘김). 캐시에 없으면 그때 받아서 추출 |
 | `search_materials` | `query`, `course_id?`, `limit?` | 전문 검색, `«…»` 하이라이트 스니펫 |
 | `list_assignments` | `course_id?`, `upcoming_only?`, `within_days?`, `refresh?` | 마감순 과제 |
@@ -181,4 +196,5 @@ src/
 
 - 스캔본(이미지) PDF는 텍스트가 없어 `empty`로 표시됩니다 (OCR 미지원).
 - `.ppt`/`.doc` 같은 구형 바이너리 포맷은 다운로드만 하고 파일명만 인덱싱합니다.
+- LearningX 콘텐츠는 자동으로 받지 않습니다. 브라우저에서 받은 뒤 `openlms import`로 추가하세요.
 - 학교가 개인 액세스 토큰 발급을 막아 둔 경우엔 사용할 수 없습니다.

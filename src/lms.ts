@@ -1,9 +1,10 @@
 // The Lms service ties the local cache to the Canvas API. Every read is
 // cache-first; the API is contacted only when the cache has nothing yet
 // (or on an explicit refresh / sync).
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { CanvasApi, type CanvasAnnouncement, type CanvasAssignment, type CanvasCourse, type CanvasFile } from "./canvas/api.js";
 import { CanvasClient, CanvasError, type ClientOptions } from "./canvas/client.js";
 import { KeychainCredentialStore, type CredentialStore } from "./auth/credentials.js";
@@ -16,6 +17,7 @@ import {
   type AssignmentFilter,
   type Course,
   type FileRow,
+  type Link,
   type TextStatus,
 } from "./store/store.js";
 
@@ -47,6 +49,12 @@ export interface SyncReport {
   assignments: number;
   announcements: number;
   errors: string[];
+}
+
+export interface ImportReport {
+  imported: FileRow[];
+  unchanged: string[];
+  skipped: { path: string; reason: string }[];
 }
 
 export interface MaterialText {
@@ -90,6 +98,16 @@ function toAnnouncement(a: CanvasAnnouncement): Announcement {
 /** A fatal error stops the whole sync instead of moving to the next course. */
 function isFatal(err: unknown): boolean {
   return err instanceof CanvasError && (err.code === "unauthorized" || err.code === "rate_limit_low");
+}
+
+/**
+ * Imported files get a stable negative ID derived from course + absolute
+ * path, so they never collide with Canvas file IDs (always positive) and a
+ * re-import of the same path updates the same row.
+ */
+export function importedFileId(courseId: number, absolutePath: string): number {
+  const digest = createHash("sha1").update(`${courseId}\0${absolutePath}`).digest();
+  return -(digest.readUInt32BE(0) || 1);
 }
 
 function message(err: unknown): string {
@@ -140,10 +158,21 @@ export class Lms {
   }
 
   async materials(courseId: number, opts: { refresh?: boolean } = {}): Promise<FileRow[]> {
-    if (opts.refresh || !this.store.meta(`files_synced:${courseId}`)) {
+    await this.ensureMaterials(courseId, opts.refresh);
+    return this.store.files(courseId);
+  }
+
+  /** External-tool (LearningX) items of a course; open them in a browser. */
+  async links(courseId: number, opts: { refresh?: boolean } = {}): Promise<Link[]> {
+    await this.ensureMaterials(courseId, opts.refresh);
+    return this.store.links(courseId);
+  }
+
+  private async ensureMaterials(courseId: number, refresh?: boolean): Promise<void> {
+    // links_synced is checked too so caches from before links existed refill once.
+    if (refresh || !this.store.meta(`files_synced:${courseId}`) || !this.store.meta(`links_synced:${courseId}`)) {
       await this.refreshFileList(courseId);
     }
-    return this.store.files(courseId);
   }
 
   async assignments(filter: AssignmentFilter = {}, opts: { refresh?: boolean } = {}): Promise<Assignment[]> {
@@ -173,7 +202,8 @@ export class Lms {
   async readMaterial(fileId: number, opts: { offset?: number; maxChars?: number } = {}): Promise<MaterialText> {
     let file = this.store.file(fileId);
     let text = this.store.text(fileId);
-    if (!file || file.textStatus === "" || (text === undefined && file.textStatus === "error")) {
+    const needsFetch = !file || file.textStatus === "" || (text === undefined && file.textStatus === "error");
+    if (needsFetch && file?.source !== "import") {
       const api = await this.api();
       const meta = await api.file(fileId);
       const courseId = file?.courseId ?? 0;
@@ -205,7 +235,9 @@ export class Lms {
   }
 
   private async refreshFileList(courseId: number, signal?: AbortSignal): Promise<CanvasFile[]> {
-    const files = await (await this.api()).courseFiles(courseId, signal);
+    const { files, links } = await (await this.api()).courseMaterials(courseId, signal);
+    this.store.replaceLinks(courseId, links);
+    this.store.setMeta(`links_synced:${courseId}`, new Date().toISOString());
     for (const f of files) {
       const existing = this.store.file(f.id);
       const changed = !existing || existing.updatedAt !== (f.updated_at ?? "") || existing.size !== f.size;
@@ -234,6 +266,93 @@ export class Lms {
     this.store.upsertAnnouncements(list.map(toAnnouncement));
     this.store.setMeta("announcements_synced", new Date().toISOString());
     return list.length;
+  }
+
+  // ---- manual import ----
+
+  /**
+   * Adds local files (e.g. materials downloaded from LearningX in a browser)
+   * to a course's index. Folders are walked recursively; hidden and
+   * unsupported files are skipped. Re-importing an unchanged file is a no-op.
+   */
+  async importFiles(courseId: number, paths: string[]): Promise<ImportReport> {
+    const courses = await this.courses();
+    if (!courses.some((c) => c.id === courseId)) {
+      throw new Error(`Course ${courseId} is not an active course (see \`openlms courses\`)`);
+    }
+    const report: ImportReport = { imported: [], unchanged: [], skipped: [] };
+    for (const path of await this.collectFiles(paths.map((p) => resolve(p)), report)) {
+      await this.importOne(courseId, path, report);
+    }
+    return report;
+  }
+
+  private async collectFiles(paths: string[], report: ImportReport): Promise<string[]> {
+    const out: string[] = [];
+    for (const path of paths) {
+      let info;
+      try {
+        info = await stat(path);
+      } catch {
+        report.skipped.push({ path, reason: "not found" });
+        continue;
+      }
+      if (info.isDirectory()) {
+        const entries = (await readdir(path)).filter((name) => !name.startsWith(".")).sort();
+        out.push(...(await this.collectFiles(entries.map((name) => join(path, name)), report)));
+      } else if (info.isFile()) {
+        out.push(path);
+      }
+    }
+    return out;
+  }
+
+  private async importOne(courseId: number, path: string, report: ImportReport): Promise<void> {
+    const name = basename(path);
+    const kind = extractKind(name);
+    if (!kind) {
+      report.skipped.push({ path, reason: "unsupported file type" });
+      return;
+    }
+    const info = await stat(path);
+    if (info.size > this.maxFileBytes) {
+      report.skipped.push({ path, reason: "too large" });
+      return;
+    }
+    const id = importedFileId(courseId, path);
+    const updatedAt = info.mtime.toISOString();
+    const existing = this.store.file(id);
+    if (existing && existing.size === info.size && existing.updatedAt === updatedAt && existing.textStatus !== "error") {
+      report.unchanged.push(path);
+      return;
+    }
+    const localPath = localFilePath(this.home, courseId, id, name);
+    await mkdir(dirname(localPath), { recursive: true, mode: 0o700 });
+    await copyFile(path, localPath);
+    let textStatus: TextStatus;
+    try {
+      const text = await extractText(kind, new Uint8Array(await readFile(localPath)));
+      textStatus = isEffectivelyEmpty(text) ? "empty" : "ok";
+      this.store.setText(id, courseId, name, text);
+    } catch {
+      textStatus = "error";
+    }
+    const row: FileRow = { id, courseId, name, contentType: "", size: info.size, updatedAt, localPath, textStatus, source: "import" };
+    this.store.upsertFile(row);
+    report.imported.push(row);
+  }
+
+  /** Removes an imported file from the index and the local copy. */
+  async removeImported(fileId: number): Promise<FileRow> {
+    const file = this.store.file(fileId);
+    if (!file || file.source !== "import") {
+      throw new Error(`File ${fileId} is not an imported file`);
+    }
+    this.store.deleteFile(fileId);
+    if (file.localPath) {
+      await rm(file.localPath, { force: true });
+    }
+    return file;
   }
 
   /** Downloads one file, extracts and indexes its text, and records it. */
@@ -309,7 +428,7 @@ export class Lms {
       }
       log(`[${course.name}] listing files…`);
       try {
-        const before = new Set(this.store.files(course.id).map((f) => f.id));
+        const before = new Set(this.store.files(course.id).filter((f) => f.source !== "import").map((f) => f.id));
         const previous = new Map(this.store.files(course.id).map((f) => [f.id, f]));
         const files = await this.refreshFileList(course.id, opts.signal);
         report.removed += [...before].filter((id) => !files.some((f) => f.id === id)).length;

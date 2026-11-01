@@ -17,6 +17,15 @@ function intArg(value: string): number {
   return n;
 }
 
+/** File IDs: Canvas IDs are positive, imported files are negative. */
+function fileIdArg(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n === 0) {
+    throw new InvalidArgumentError("must be a non-zero integer");
+  }
+  return n;
+}
+
 function lmsOptions(): LmsOptions {
   const opts = program.opts<{ delay?: number; allowGrades?: boolean }>();
   return { client: { delayMs: opts.delay, allowGrades: opts.allowGrades } };
@@ -151,21 +160,79 @@ program
 
 program
   .command("files")
-  .description("list course materials")
+  .description("list course materials (and, with --course, LearningX items to open in a browser)")
   .option("--course <id>", "course ID", intArg)
   .option("--refresh", "refresh the file list from the LMS")
   .option("--json", "output JSON")
   .action((opts: { course?: number; refresh?: boolean; json?: boolean }) =>
     withLms(async (lms) => {
       const files = opts.course ? await lms.materials(opts.course, { refresh: opts.refresh }) : lms.store.files();
-      print(opts.json, files, () =>
-        files.length === 0
-          ? "파일이 없습니다. `openlms sync`를 먼저 실행하세요."
-          : table(
-              ["ID", "과목", "파일", "크기", "텍스트"],
-              files.map((f) => [String(f.id), f.courseName ?? "", f.name, formatBytes(f.size), f.textStatus || "pending"]),
-            ),
-      );
+      const links = opts.course ? await lms.links(opts.course) : [];
+      const data = opts.course ? { files, learningx: links } : files;
+      print(opts.json, data, () => {
+        const parts: string[] = [];
+        parts.push(
+          files.length === 0
+            ? opts.course
+              ? "Canvas 파일이 없습니다."
+              : "파일이 없습니다. `openlms sync`를 먼저 실행하세요."
+            : table(
+                ["ID", "과목", "파일", "크기", "텍스트"],
+                files.map((f) => [
+                  String(f.id),
+                  f.courseName ?? "",
+                  f.source === "import" ? `${f.name} (가져옴)` : f.name,
+                  formatBytes(f.size),
+                  f.textStatus || "pending",
+                ]),
+              ),
+        );
+        if (links.length > 0) {
+          parts.push(
+            "",
+            `LearningX 콘텐츠 ${links.length}개 — Canvas 토큰으로는 받을 수 없어 브라우저에서 열어야 합니다.`,
+            "받은 파일은 `openlms import <파일|폴더> --course <id>`로 검색 인덱스에 넣을 수 있습니다.",
+            "",
+            table(["모듈", "제목", "링크"], links.map((l) => [l.module, l.title, l.htmlUrl]), 60),
+          );
+        }
+        return parts.join("\n");
+      });
+    }),
+  );
+
+program
+  .command("import")
+  .description("index local files (e.g. downloaded from LearningX) into a course")
+  .argument("<paths...>", "files or folders (folders are walked recursively)")
+  .requiredOption("--course <id>", "course ID", intArg)
+  .option("--max-size <MB>", "skip files larger than this", (v) => Number(v), 100)
+  .option("--json", "output JSON report")
+  .action((paths: string[], opts: { course: number; maxSize: number; json?: boolean }) =>
+    withLms(
+      async (lms) => {
+        const report = await lms.importFiles(opts.course, paths);
+        print(opts.json, report, () => {
+          const lines = [
+            `✓ 가져옴 ${report.imported.length} · 변경 없음 ${report.unchanged.length} · 건너뜀 ${report.skipped.length}`,
+            ...report.imported.map((f) => `  + [${f.id}] ${f.name} (${f.textStatus})`),
+            ...report.skipped.map((s) => `  - ${s.path}: ${s.reason}`),
+          ];
+          return lines.join("\n");
+        });
+      },
+      { ...lmsOptions(), maxFileBytes: opts.maxSize * 1024 * 1024 },
+    ),
+  );
+
+program
+  .command("unimport")
+  .description("remove an imported file from the index")
+  .argument("<fileId>", "imported file ID (negative number shown by `openlms files`)", fileIdArg)
+  .action((fileId: number) =>
+    withLms(async (lms) => {
+      const file = await lms.removeImported(fileId);
+      process.stderr.write(`✓ ${file.name} 을(를) 인덱스에서 제거했습니다.\n`);
     }),
   );
 
@@ -229,7 +296,7 @@ program
 program
   .command("read")
   .description("print extracted text of a material (downloads on demand)")
-  .argument("<fileId>", "file ID", intArg)
+  .argument("<fileId>", "file ID (imported files have negative IDs)", fileIdArg)
   .option("--offset <n>", "character offset", (v) => Number(v), 0)
   .option("--max-chars <n>", "max characters", (v) => Number(v), 1_000_000)
   .action((fileId: number, opts: { offset: number; maxChars: number }) =>
