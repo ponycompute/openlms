@@ -4,144 +4,149 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canvas 토큰 발급</title>
-<meta name="description" content="OpenLMS에 로그인할 Canvas 액세스 토큰을 발급하는 방법">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<meta name="description" content="OpenLMS 로그인에 쓸 Canvas 액세스 토큰을 만드는 방법">
 <style>
 :root {
-  --bg: #FAFAF8;
-  --fg: #1F2328;
-  --muted: #5F6368;
-  --line: #E3E1DC;
-  --card: #FFFFFF;
-  --accent: #C0392B;
-  --code-bg: #111111;
-  --code-fg: #D3D7CF;
-  --note-bg: #FFF7E6;
-  --note-line: #F0C36D;
+  --bg: #FCFCFB;
+  --text: #1C1D1F;
+  --text-2: #5B5E63;
+  --line: #E4E4E1;
+  --code-bg: #F2F2EF;
+  --term-bg: #1C1D1F;
+  --term-text: #E6E6E3;
+  --term-dim: #8E9196;
+  --link: #1F5FBF;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #111111;
-    --fg: #EEEEEC;
-    --muted: #A0A29E;
-    --line: #2E2E2E;
-    --card: #1A1A1A;
-    --accent: #FF6B6B;
-    --code-bg: #000000;
-    --note-bg: #2A2414;
-    --note-line: #8A6D2B;
+    --bg: #161718;
+    --text: #E8E8E6;
+    --text-2: #A2A5AA;
+    --line: #2C2E31;
+    --code-bg: #232528;
+    --term-bg: #0F1011;
+    --link: #7FAEF5;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #111111;
-  --fg: #EEEEEC;
-  --muted: #A0A29E;
-  --line: #2E2E2E;
-  --card: #1A1A1A;
-  --accent: #FF6B6B;
-  --code-bg: #000000;
-  --note-bg: #2A2414;
-  --note-line: #8A6D2B;
+  --bg: #161718;
+  --text: #E8E8E6;
+  --text-2: #A2A5AA;
+  --line: #2C2E31;
+  --code-bg: #232528;
+  --term-bg: #0F1011;
+  --link: #7FAEF5;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   background: var(--bg);
-  color: var(--fg);
-  font: 16px/1.7 "Noto Sans KR", system-ui, sans-serif;
+  color: var(--text);
+  font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-main { max-width: 860px; margin: 0 auto; padding: 56px 16px 80px; }
-header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 40px; }
-.brand { font: 700 14px/1 "JetBrains Mono", monospace; color: var(--accent); letter-spacing: .04em; }
-h1 { font-size: clamp(28px, 5vw, 38px); line-height: 1.25; margin: 14px 0 12px; }
-.lead { color: var(--muted); margin: 0; }
-h2 { font-size: 22px; margin: 0 0 8px; display: flex; gap: 12px; align-items: baseline; }
-.num { font: 700 15px/1 "JetBrains Mono", monospace; color: var(--accent); }
-section.step { margin: 0 0 56px; }
-section.step p { margin: 0 0 16px; }
-figure { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
-figure img { display: block; width: 100%; height: auto; }
-figcaption { font-size: 13px; color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); }
-b.ui { font-weight: 700; white-space: nowrap; }
-code { font-family: "JetBrains Mono", monospace; font-size: .92em; }
+a { color: var(--link); text-underline-offset: 3px; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { font-size: .88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+
+.top {
+  border-bottom: 1px solid var(--line);
+}
+.top-inner, main { max-width: 760px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+.top-inner { height: 56px; display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+.top-inner .name { font-weight: 600; }
+.top-inner a.repo { color: var(--text-2); text-decoration: none; }
+.top-inner a.repo:hover { color: var(--text); text-decoration: underline; }
+
+main { padding-top: 48px; padding-bottom: 96px; }
+h1 { font-size: 32px; line-height: 1.3; letter-spacing: -0.02em; margin: 0 0 12px; }
+.lead { color: var(--text-2); margin: 0 0 56px; max-width: 60ch; }
+
+ol.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+ol.steps > li { counter-increment: step; margin: 0 0 64px; }
+ol.steps h2 {
+  font-size: 20px; line-height: 1.4; letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+ol.steps h2::before { content: counter(step) ". "; color: var(--text-2); font-weight: 500; }
+ol.steps p { margin: 0 0 20px; max-width: 65ch; }
+.shot { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.small { font-size: 14px; color: var(--text-2); margin: 10px 0 0 !important; }
+b.ui { font-weight: 600; }
+
 pre {
-  background: var(--code-bg); color: var(--code-fg);
-  font: 14px/1.6 "JetBrains Mono", monospace;
-  padding: 16px 18px; border-radius: 10px; overflow-x: auto; margin: 0 0 16px;
+  background: var(--term-bg); color: var(--term-text);
+  font-size: 14px; line-height: 1.65;
+  padding: 16px 18px; border-radius: 6px; overflow-x: auto; margin: 0 0 20px;
 }
-pre .prompt { color: #8AE234; }
-pre .dim { color: #888A85; }
-.note { background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 10px; padding: 14px 18px; margin: 0 0 16px; }
-.note p { margin: 0; }
-ul { padding-left: 20px; margin: 0 0 16px; }
-li { margin-bottom: 6px; }
-a { color: var(--accent); }
+pre .dim { color: var(--term-dim); }
+
+section.manage { border-top: 1px solid var(--line); padding-top: 40px; }
+section.manage h2 { font-size: 20px; margin: 0 0 12px; }
+section.manage p { margin: 0 0 16px; max-width: 65ch; }
+section.manage ul { margin: 0; padding-left: 20px; max-width: 65ch; }
+section.manage li { margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  main { padding-top: 32px; }
+  h1 { font-size: 26px; }
+  ol.steps > li { margin-bottom: 48px; }
+}
 </style>
 </head>
 <body>
+<header class="top">
+  <div class="top-inner">
+    <span class="name">OpenLMS</span>
+    <a class="repo" href="https://github.com/ponycompute/openlms">GitHub</a>
+  </div>
+</header>
+
 <main>
-  <header>
-    <div class="brand">✦ OpenLMS</div>
-    <h1>Canvas 액세스 토큰 발급하기</h1>
-    <p class="lead">OpenLMS는 학교 Canvas에 여러분의 액세스 토큰으로 접속합니다. 토큰은 Canvas 설정에서 1분이면 만들 수 있고, OpenLMS는 이 토큰을 OS 키체인에만 저장합니다.</p>
-  </header>
+  <h1>Canvas 액세스 토큰 발급</h1>
+  <p class="lead">OpenLMS는 학교 Canvas에 여러분이 만든 액세스 토큰으로 접속합니다. 토큰은 Canvas의 계정 → 설정 → 승인된 통합에서 만들고, OpenLMS는 이를 OS 키체인에만 저장합니다.</p>
 
-  <section class="step">
-    <h2><span class="num">01</span>계정 메뉴에서 설정 열기</h2>
-    <p>Canvas에 로그인한 뒤 왼쪽 글로벌 메뉴의 <b class="ui">계정</b>을 누르고, 펼쳐진 메뉴에서 <b class="ui">설정</b>을 누릅니다.</p>
-    <figure>
-      <img src="images/01-account-menu.jpg" width="1600" height="1000" alt="Canvas 계정 메뉴가 열려 있고 설정 항목이 강조되어 있다">
-      <figcaption>계정 → 설정</figcaption>
-    </figure>
-  </section>
-
-  <section class="step">
-    <h2><span class="num">02</span>새 액세스 토큰 누르기</h2>
-    <p>설정 페이지를 아래로 내려 <b class="ui">승인된 통합</b> 표 밑의 <b class="ui">+ 새 액세스 토큰</b> 버튼을 누릅니다.</p>
-    <figure>
-      <img src="images/02-new-token-button.jpg" width="1600" height="1000" alt="승인된 통합 표 아래의 새 액세스 토큰 버튼이 강조되어 있다">
-      <figcaption>설정 → 승인된 통합 → + 새 액세스 토큰</figcaption>
-    </figure>
-  </section>
-
-  <section class="step">
-    <h2><span class="num">03</span>목적을 적고 토큰 생성</h2>
-    <p><b class="ui">목적</b>에 나중에 알아볼 이름(예: <code>OpenLMS</code>)을 적습니다. <b class="ui">만료일</b>은 비워 두면 만료되지 않고, 날짜를 정하면 그날 이후 다시 발급해야 합니다. <b class="ui">토큰 생성</b>을 누릅니다.</p>
-    <figure>
-      <img src="images/03-token-dialog.jpg" width="1600" height="1000" alt="새 액세스 토큰 창에 목적 OpenLMS가 입력되어 있다">
-      <figcaption>목적: OpenLMS · 만료일: 비워 두거나 원하는 날짜</figcaption>
-    </figure>
-  </section>
-
-  <section class="step">
-    <h2><span class="num">04</span>토큰을 바로 복사</h2>
-    <p><b class="ui">토큰</b> 옆의 긴 문자열이 액세스 토큰입니다. 지금 복사해 두세요. 이 창을 닫으면 전체 토큰을 다시 볼 수 없고, 잃어버리면 <b class="ui">토큰 다시 생성</b>으로 새로 받아야 합니다.</p>
-    <figure>
-      <img src="images/04-token-created.jpg" width="1600" height="1000" alt="액세스 토큰 상세 정보 창. 토큰 값은 가려져 있다">
-      <figcaption>토큰 값은 가렸습니다. 실제 화면에서는 영문·숫자로 된 긴 문자열이 보입니다. (예시 화면의 목적은 "OpenLMS 가이드")</figcaption>
-    </figure>
-  </section>
-
-  <section class="step">
-    <h2><span class="num">05</span>OpenLMS에 로그인</h2>
-    <p>터미널에서 <code>openlms login</code>을 실행하고, 학교 Canvas 주소와 방금 복사한 토큰을 붙여 넣습니다.</p>
-<pre><span class="prompt">$</span> npm install -g openlms
-<span class="prompt">$</span> openlms login
+  <ol class="steps">
+    <li>
+      <h2>계정 메뉴에서 설정 열기</h2>
+      <p>Canvas에 로그인한 뒤 왼쪽 메뉴의 <b class="ui">계정</b>을 누르고, 펼쳐진 메뉴에서 <b class="ui">설정</b>을 누릅니다.</p>
+      <img class="shot" src="images/01-account-menu.jpg" width="1600" height="1000" alt="Canvas 계정 메뉴가 열려 있고 설정 항목이 표시되어 있다">
+    </li>
+    <li>
+      <h2>새 액세스 토큰 누르기</h2>
+      <p>설정 페이지를 내려 <b class="ui">승인된 통합</b> 표 아래의 <b class="ui">+ 새 액세스 토큰</b>을 누릅니다.</p>
+      <img class="shot" src="images/02-new-token-button.jpg" width="1600" height="1000" loading="lazy" alt="승인된 통합 표 아래에 새 액세스 토큰 버튼이 있다">
+    </li>
+    <li>
+      <h2>목적을 적고 토큰 생성</h2>
+      <p><b class="ui">목적</b>에는 나중에 알아볼 이름(예: <code>OpenLMS</code>)을 적습니다. <b class="ui">만료일</b>을 비워 두면 토큰이 만료되지 않습니다. <b class="ui">토큰 생성</b>을 누릅니다.</p>
+      <img class="shot" src="images/03-token-dialog.jpg" width="1600" height="1000" loading="lazy" alt="새 액세스 토큰 창의 목적 칸에 OpenLMS가 입력되어 있다">
+    </li>
+    <li>
+      <h2>토큰 복사</h2>
+      <p><b class="ui">토큰</b> 옆의 긴 문자열을 바로 복사합니다. 이 창을 닫으면 전체 토큰을 다시 볼 수 없고, 잃어버렸다면 <b class="ui">토큰 다시 생성</b>으로 새로 받아야 합니다.</p>
+      <img class="shot" src="images/04-token-created.jpg" width="1600" height="1000" loading="lazy" alt="액세스 토큰 상세 정보 창. 토큰 값은 가려져 있다">
+      <p class="small">스크린샷의 토큰 값과 개인정보는 가렸습니다.</p>
+    </li>
+    <li>
+      <h2>OpenLMS에 로그인</h2>
+      <p>터미널에서 <code>openlms login</code>을 실행하고 학교 Canvas 주소와 복사한 토큰을 붙여 넣습니다.</p>
+<pre>$ npm install -g openlms
+$ openlms login
 <span class="dim">LMS base URL (예: https://canvas.ssu.ac.kr):</span> https://canvas.knu.ac.kr
-<span class="dim">Access token:</span> <span class="dim">(붙여 넣어도 화면에 표시되지 않습니다)</span></pre>
-    <p>OpenLMS는 <code>/api/v1/users/self</code>로 토큰을 확인한 뒤 주소와 토큰을 OS 키체인에 저장합니다. 이어서 <code>openlms sync</code>로 강의자료를 받으세요.</p>
-  </section>
+<span class="dim">Access token:</span></pre>
+      <p>토큰은 입력해도 화면에 나타나지 않습니다. OpenLMS가 토큰을 확인한 뒤 키체인에 저장하면 <code>openlms sync</code>로 강의자료를 받을 수 있습니다.</p>
+    </li>
+  </ol>
 
-  <section class="step">
-    <h2><span class="num">!</span>토큰 다루기</h2>
-    <div class="note"><p>액세스 토큰은 비밀번호와 같습니다. 이 토큰이 있으면 누구든 여러분 계정으로 Canvas API를 쓸 수 있습니다.</p></div>
+  <section class="manage">
+    <h2>토큰 관리</h2>
+    <p>액세스 토큰이 있으면 누구든 여러분 계정으로 Canvas를 쓸 수 있습니다. 비밀번호처럼 다루세요.</p>
     <ul>
-      <li>채팅·메일·스크린샷·GitHub 등에 붙여 넣지 마세요.</li>
-      <li>더 이상 쓰지 않거나 유출이 의심되면 <b class="ui">설정 → 승인된 통합</b>에서 해당 토큰 행의 휴지통 아이콘으로 삭제하세요. 삭제하면 즉시 쓸 수 없습니다.</li>
-      <li>OpenLMS에서 지우려면 <code>openlms logout</code>을 실행하세요.</li>
-      <li>학교마다 메뉴 이름이나 위치가 조금 다를 수 있습니다. 그래도 <b class="ui">계정 → 설정 → 승인된 통합</b>의 흐름은 같습니다.</li>
+      <li>채팅, 메일, 스크린샷, 저장소에 붙여 넣지 마세요.</li>
+      <li>쓰지 않거나 유출이 의심되면 <b class="ui">설정 → 승인된 통합</b>에서 그 토큰을 삭제하세요. 삭제하면 바로 쓸 수 없게 됩니다.</li>
+      <li>OpenLMS에 저장된 토큰은 <code>openlms logout</code>으로 지웁니다.</li>
+      <li>학교마다 메뉴 이름은 조금 다를 수 있지만 순서는 같습니다.</li>
     </ul>
   </section>
 </main>
