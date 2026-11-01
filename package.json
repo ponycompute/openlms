@@ -1,6 +1,6 @@
 {
   "name": "openlms",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "OpenLMS — local Canvas/LearningX LMS sync + search with CLI, TUI and MCP (stdio) server",
   "repository": {
     "type": "git",
