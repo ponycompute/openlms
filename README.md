@@ -75,8 +75,6 @@ openlms sync
 | `openlms tui` | 터미널 UI |
 | `openlms mcp` | stdio MCP 서버 |
 
-> 짧게 쓰고 싶다면 셸에 `alias lms=openlms`를 추가하세요. (패키지가 `lms` 명령을 직접 설치하지 않는 이유는 LM Studio CLI 등 같은 이름의 도구를 가리지 않기 위해서입니다.)
-
 조회 명령은 모두 `--json`, `--refresh`(API에서 새로 가져오기)를 지원합니다. 전역 옵션: `--delay <ms>`, `--allow-grades`.
 
 ### TUI
