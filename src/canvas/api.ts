@@ -59,8 +59,13 @@ function isHiddenError(err: unknown): boolean {
   return err instanceof CanvasError && (err.code === "forbidden" || err.code === "not_found");
 }
 
+/**
+ * Keeps files the student can download. `hidden_for_user` only means "not
+ * listed in the Files browser" (link-only access) and still comes with a
+ * working URL, so it is not a reason to skip a file.
+ */
 function visible(files: CanvasFile[]): CanvasFile[] {
-  return files.filter((f) => !f.locked_for_user && !f.hidden_for_user && Boolean(f.url));
+  return files.filter((f) => !f.locked_for_user && Boolean(f.url));
 }
 
 export class CanvasApi {

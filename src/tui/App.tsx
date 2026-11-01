@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useEffect, useMemo, useState } from "react";
-import { formatBytes, formatDue, truncate } from "../cli/format.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { displayWidth, formatBytes, formatDue, truncate } from "../cli/format.js";
 import type { Lms } from "../lms.js";
 import type { Announcement, Assignment, Course, FileRow, SearchHit } from "../store/store.js";
 
@@ -26,21 +26,24 @@ interface ListItem {
   enter?: () => void;
 }
 
-function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data?: T; error?: string; loading: boolean } {
-  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({ loading: true });
+/**
+ * Loads data for `key`. Results are tagged with the key they were loaded
+ * for, so a render after the key changes never sees the previous key's data.
+ */
+function useAsync<T>(fn: () => Promise<T>, key: string): { data?: T; error?: string; loading: boolean } {
+  const [state, setState] = useState<{ key?: string; data?: T; error?: string }>({});
   useEffect(() => {
     let alive = true;
-    setState({ loading: true });
     fn().then(
-      (data) => alive && setState({ data, loading: false }),
-      (err: unknown) => alive && setState({ error: err instanceof Error ? err.message : String(err), loading: false }),
+      (data) => alive && setState({ key, data }),
+      (err: unknown) => alive && setState({ key, error: err instanceof Error ? err.message : String(err) }),
     );
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return state;
+  }, [key]);
+  return state.key === key ? { data: state.data, error: state.error, loading: false } : { loading: true };
 }
 
 function dueColor(iso: string | null): string | undefined {
@@ -60,9 +63,9 @@ function dueColor(iso: string | null): string | undefined {
   return undefined;
 }
 
-function SelectList({ items, height, cursor, width }: { items: ListItem[]; height: number; cursor: number; width: number }) {
+function SelectList({ items, height, cursor, width, empty = "(비어 있음)" }: { items: ListItem[]; height: number; cursor: number; width: number; empty?: string }) {
   if (items.length === 0) {
-    return <Text dimColor>  (비어 있음)</Text>;
+    return <Text dimColor>  {empty}</Text>;
   }
   const start = Math.max(0, Math.min(cursor - Math.floor(height / 2), items.length - height));
   const visible = items.slice(start, start + height);
@@ -70,11 +73,12 @@ function SelectList({ items, height, cursor, width }: { items: ListItem[]; heigh
     <Box flexDirection="column">
       {visible.map((item, i) => {
         const selected = start + i === cursor;
-        const hint = item.hint ? `  ${item.hint}` : "";
+        const hint = item.hint ? `  ${truncate(item.hint, Math.floor(width * 0.4))}` : "";
+        const label = truncate(item.label, Math.max(10, width - displayWidth(hint) - 4));
         return (
-          <Text key={item.key} color={selected ? "cyan" : item.color} bold={selected}>
+          <Text key={item.key} color={selected ? "cyan" : item.color} bold={selected} wrap="truncate-end">
             {selected ? "› " : "  "}
-            {truncate(item.label, Math.max(10, width - hint.length - 6))}
+            {label}
             <Text dimColor>{hint}</Text>
           </Text>
         );
@@ -115,23 +119,32 @@ export function App({ lms }: { lms: Lms }) {
   const [cursor, setCursor] = useState(0);
   const [scroll, setScroll] = useState(0);
   const [status, setStatus] = useState<string>("");
+  // `r` bumps `reload` and marks which loaders should bypass the cache once.
+  const [reload, setReload] = useState(0);
+  const pendingRefresh = useRef(new Set<string>());
+  const takeRefresh = (name: string) => pendingRefresh.current.delete(name);
 
-  const courses = useAsync(() => lms.courses(), []);
-  const upcoming = useAsync(() => lms.assignments({ upcomingOnly: true, withinDays: 7 }), []);
+  const courses = useAsync(() => lms.courses({ refresh: takeRefresh("courses") }), `courses:${reload}`);
+  const upcoming = useAsync(
+    () => lms.assignments({ upcomingOnly: true, withinDays: 7 }, { refresh: takeRefresh("upcoming") }),
+    `upcoming:${reload}`,
+  );
 
+  const courseKey = screen.kind === "course" ? `${screen.course.id}:${screen.tab}` : "-";
   const courseData = useAsync<FileRow[] | Assignment[] | Announcement[] | undefined>(async () => {
     if (screen.kind !== "course") {
       return undefined;
     }
     const id = screen.course.id;
+    const refresh = takeRefresh(courseKey);
     if (screen.tab === "materials") {
-      return lms.materials(id);
+      return lms.materials(id, { refresh });
     }
     if (screen.tab === "assignments") {
-      return lms.assignments({ courseId: id });
+      return lms.assignments({ courseId: id }, { refresh });
     }
-    return lms.announcements({ courseId: id, limit: 100 });
-  }, [screen.kind === "course" ? `${screen.course.id}:${screen.tab}` : "-"]);
+    return lms.announcements({ courseId: id, limit: 100, refresh });
+  }, `${courseKey}:${reload}`);
 
   const [hits, setHits] = useState<SearchHit[]>([]);
 
@@ -152,7 +165,7 @@ export function App({ lms }: { lms: Lms }) {
       return (courses.data ?? []).map((c) => ({
         key: `c${c.id}`,
         label: c.name,
-        hint: [c.code, c.term].filter(Boolean).join(" · "),
+        hint: [c.name.includes(c.code) ? "" : c.code, c.term].filter(Boolean).join(" · "),
         enter: () => go({ kind: "course", course: c, tab: "materials" }),
       }));
     }
@@ -248,6 +261,13 @@ export function App({ lms }: { lms: Lms }) {
       go({ kind: "search", query: "", editing: true });
       return;
     }
+    if (input === "r" && (screen.kind === "home" || screen.kind === "course")) {
+      for (const name of screen.kind === "home" ? ["courses", "upcoming"] : [courseKey]) {
+        pendingRefresh.current.add(name);
+      }
+      setReload((n) => n + 1);
+      return;
+    }
     if (key.upArrow || input === "k") setCursor((c) => Math.max(0, c - 1));
     else if (key.downArrow || input === "j") setCursor((c) => Math.min(Math.max(0, items.length - 1), c + 1));
     else if (key.escape || key.backspace) go({ kind: "home" });
@@ -275,7 +295,7 @@ export function App({ lms }: { lms: Lms }) {
 
   const header = (
     <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">LMS</Text>
+      <Text bold color="cyan">OpenLMS</Text>
       <Text dimColor>
         {"  "}
         {screen.kind === "home" && "과목"}
@@ -291,9 +311,11 @@ export function App({ lms }: { lms: Lms }) {
       ? "↑↓ 스크롤 · space/b 페이지 · esc 뒤로 · q 종료"
       : screen.kind === "search" && screen.editing
         ? "검색어 입력 후 enter · esc 취소"
-        : screen.kind === "course"
-          ? "↑↓ 이동 · enter 열기 · tab/←→ 탭 · / 검색 · esc 뒤로 · q 종료"
-          : "↑↓ 이동 · enter 열기 · / 검색 · q 종료";
+        : screen.kind === "search"
+          ? "↑↓ 이동 · enter 열기 · / 새 검색 · esc 뒤로 · q 종료"
+          : screen.kind === "course"
+          ? "↑↓ 이동 · enter 열기 · tab/←→ 탭 · r 새로고침 · / 검색 · esc 뒤로 · q 종료"
+          : "↑↓ 이동 · enter 열기 · r 새로고침 · / 검색 · q 종료";
 
   let body: React.ReactNode;
   if (screen.kind === "detail") {
@@ -333,7 +355,7 @@ export function App({ lms }: { lms: Lms }) {
           {screen.query}
           {screen.editing && <Text inverse> </Text>}
         </Text>
-        {!screen.editing && <SelectList items={items} height={listHeight - 2} cursor={cursor} width={cols} />}
+        {!screen.editing && <SelectList items={items} height={listHeight - 2} cursor={cursor} width={cols} empty="검색 결과가 없습니다." />}
       </Box>
     );
   } else {
@@ -348,7 +370,15 @@ export function App({ lms }: { lms: Lms }) {
         </Box>
         {courseData.loading && <Text dimColor>불러오는 중…</Text>}
         {courseData.error && <Text color="red">✗ {courseData.error}</Text>}
-        {!courseData.loading && <SelectList items={items} height={listHeight - 2} cursor={cursor} width={cols} />}
+        {!courseData.loading && (
+          <SelectList
+            items={items}
+            height={listHeight - 2}
+            cursor={cursor}
+            width={cols}
+            empty={screen.tab === "materials" ? "Canvas 파일이 없습니다. 자료가 LearningX 콘텐츠로만 올라온 과목일 수 있습니다." : "(비어 있음)"}
+          />
+        )}
       </Box>
     );
   }

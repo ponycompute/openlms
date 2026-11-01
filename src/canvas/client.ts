@@ -163,6 +163,12 @@ export class CanvasClient {
         }
         if (status === 401) {
           await response.body?.cancel();
+          // Canvas also answers 401 (with a localized "not authorized" body)
+          // when a student may not see a resource, e.g. a hidden Files tab.
+          // Only a bad token comes with a WWW-Authenticate challenge.
+          if (!response.headers.has("www-authenticate")) {
+            throw new CanvasError(`Not authorized (401): ${url.pathname}`, "forbidden", 401);
+          }
           throw new CanvasError("Unauthorized (401): token invalid or expired. Run `openlms login`.", "unauthorized", 401);
         }
         if (status === 404) {

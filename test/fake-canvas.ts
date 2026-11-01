@@ -74,6 +74,8 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
     size: blobs[id]!.data.length,
     url: `${base}/files/${id}/download?verifier=abc`,
     updated_at: updated[id],
+    // Instructors often hide files from the Files browser but link them.
+    hidden_for_user: id === 103,
   });
 
   const json = (res: import("node:http").ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
@@ -96,7 +98,7 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
       return;
     }
     if (req.headers.authorization !== `Bearer ${TOKEN}`) {
-      json(res, 401, { errors: [{ message: "Invalid access token." }] });
+      json(res, 401, { errors: [{ message: "Invalid access token." }] }, { "www-authenticate": 'Bearer realm="canvas-lms"' });
       return;
     }
     const p = url.pathname;
@@ -120,7 +122,8 @@ export async function startFakeCanvas(): Promise<FakeCanvas> {
       });
     }
     if (p === "/api/v1/courses/2/files") {
-      return json(res, 403, { status: "unauthorized", errors: [{ message: "user not authorized to perform that action" }] });
+      // Real Canvas answers a hidden Files tab with 401 and no WWW-Authenticate.
+      return json(res, 401, { status: "권한이 없음", errors: [{ message: "사용자에게 이 동작을 수행할 권한이 없음" }] });
     }
     if (p === "/api/v1/courses/2/modules") {
       return json(res, 200, [{ id: 9, name: "1주차", items: [{ id: 1, title: "해시", type: "File", content_id: 201 }, { id: 2, title: "링크", type: "ExternalUrl" }] }]);
