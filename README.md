@@ -4,6 +4,8 @@
 
 명령 하나(`openlms`)로 CLI, TUI, MCP 서버(stdio)를 모두 제공합니다.
 
+![OpenLMS TUI: 동기화, 강의자료 읽기, 과제·공지, 할 일, 검색](assets/tui-demo.gif)
+
 - 활성 과목의 파일을 `~/.lms/`에 **증분 다운로드**
 - PDF / PPTX / DOCX / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
 - 과제(마감순), 공지 캐시
