@@ -25,6 +25,7 @@
     "dev": "tsx src/cli.ts",
     "test": "tsx --test --test-timeout=30000 test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "version": "node -e \"require('fs').writeFileSync('src/version.ts', 'export const VERSION = ' + JSON.stringify(require('./package.json').version) + ';\\n')\" && git add src/version.ts",
     "prepublishOnly": "npm run build"
   },
   "license": "MIT",
