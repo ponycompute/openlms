@@ -47,7 +47,10 @@ jobs:
           fi
       - if: steps.check.outputs.skip != 'true'
         run: npm ci
+      # Trusted publishing: npm trusts this workflow through GitHub OIDC, so no
+      # token is stored. Needs npm 11.5.1+, and the workflow registered as a
+      # trusted publisher in the package settings on npmjs.com.
       - if: steps.check.outputs.skip != 'true'
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm install -g npm@^11.5.1
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish --access public
