@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas 토큰 발급</title>
+<meta name="description" content="OpenLMS에 로그인할 Canvas 액세스 토큰을 발급하는 방법">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #FAFAF8;
+  --fg: #1F2328;
+  --muted: #5F6368;
+  --line: #E3E1DC;
+  --card: #FFFFFF;
+  --accent: #C0392B;
+  --code-bg: #111111;
+  --code-fg: #D3D7CF;
+  --note-bg: #FFF7E6;
+  --note-line: #F0C36D;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111111;
+    --fg: #EEEEEC;
+    --muted: #A0A29E;
+    --line: #2E2E2E;
+    --card: #1A1A1A;
+    --accent: #FF6B6B;
+    --code-bg: #000000;
+    --note-bg: #2A2414;
+    --note-line: #8A6D2B;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111111;
+  --fg: #EEEEEC;
+  --muted: #A0A29E;
+  --line: #2E2E2E;
+  --card: #1A1A1A;
+  --accent: #FF6B6B;
+  --code-bg: #000000;
+  --note-bg: #2A2414;
+  --note-line: #8A6D2B;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.7 "Noto Sans KR", system-ui, sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 56px 16px 80px; }
+header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 40px; }
+.brand { font: 700 14px/1 "JetBrains Mono", monospace; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: clamp(28px, 5vw, 38px); line-height: 1.25; margin: 14px 0 12px; }
+.lead { color: var(--muted); margin: 0; }
+h2 { font-size: 22px; margin: 0 0 8px; display: flex; gap: 12px; align-items: baseline; }
+.num { font: 700 15px/1 "JetBrains Mono", monospace; color: var(--accent); }
+section.step { margin: 0 0 56px; }
+section.step p { margin: 0 0 16px; }
+figure { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { font-size: 13px; color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); }
+b.ui { font-weight: 700; white-space: nowrap; }
+code { font-family: "JetBrains Mono", monospace; font-size: .92em; }
+pre {
+  background: var(--code-bg); color: var(--code-fg);
+  font: 14px/1.6 "JetBrains Mono", monospace;
+  padding: 16px 18px; border-radius: 10px; overflow-x: auto; margin: 0 0 16px;
+}
+pre .prompt { color: #8AE234; }
+pre .dim { color: #888A85; }
+.note { background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 10px; padding: 14px 18px; margin: 0 0 16px; }
+.note p { margin: 0; }
+ul { padding-left: 20px; margin: 0 0 16px; }
+li { margin-bottom: 6px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">✦ OpenLMS</div>
+    <h1>Canvas 액세스 토큰 발급하기</h1>
+    <p class="lead">OpenLMS는 학교 Canvas에 여러분의 액세스 토큰으로 접속합니다. 토큰은 Canvas 설정에서 1분이면 만들 수 있고, OpenLMS는 이 토큰을 OS 키체인에만 저장합니다.</p>
+  </header>
+
+  <section class="step">
+    <h2><span class="num">01</span>계정 메뉴에서 설정 열기</h2>
+    <p>Canvas에 로그인한 뒤 왼쪽 글로벌 메뉴의 <b class="ui">계정</b>을 누르고, 펼쳐진 메뉴에서 <b class="ui">설정</b>을 누릅니다.</p>
+    <figure>
+      <img src="images/01-account-menu.jpg" width="1600" height="1000" alt="Canvas 계정 메뉴가 열려 있고 설정 항목이 강조되어 있다">
+      <figcaption>계정 → 설정</figcaption>
+    </figure>
+  </section>
+
+  <section class="step">
+    <h2><span class="num">02</span>새 액세스 토큰 누르기</h2>
+    <p>설정 페이지를 아래로 내려 <b class="ui">승인된 통합</b> 표 밑의 <b class="ui">+ 새 액세스 토큰</b> 버튼을 누릅니다.</p>
+    <figure>
+      <img src="images/02-new-token-button.jpg" width="1600" height="1000" alt="승인된 통합 표 아래의 새 액세스 토큰 버튼이 강조되어 있다">
+      <figcaption>설정 → 승인된 통합 → + 새 액세스 토큰</figcaption>
+    </figure>
+  </section>
+
+  <section class="step">
+    <h2><span class="num">03</span>목적을 적고 토큰 생성</h2>
+    <p><b class="ui">목적</b>에 나중에 알아볼 이름(예: <code>OpenLMS</code>)을 적습니다. <b class="ui">만료일</b>은 비워 두면 만료되지 않고, 날짜를 정하면 그날 이후 다시 발급해야 합니다. <b class="ui">토큰 생성</b>을 누릅니다.</p>
+    <figure>
+      <img src="images/03-token-dialog.jpg" width="1600" height="1000" alt="새 액세스 토큰 창에 목적 OpenLMS가 입력되어 있다">
+      <figcaption>목적: OpenLMS · 만료일: 비워 두거나 원하는 날짜</figcaption>
+    </figure>
+  </section>
+
+  <section class="step">
+    <h2><span class="num">04</span>토큰을 바로 복사</h2>
+    <p><b class="ui">토큰</b> 옆의 긴 문자열이 액세스 토큰입니다. 지금 복사해 두세요. 이 창을 닫으면 전체 토큰을 다시 볼 수 없고, 잃어버리면 <b class="ui">토큰 다시 생성</b>으로 새로 받아야 합니다.</p>
+    <figure>
+      <img src="images/04-token-created.jpg" width="1600" height="1000" alt="액세스 토큰 상세 정보 창. 토큰 값은 가려져 있다">
+      <figcaption>토큰 값은 가렸습니다. 실제 화면에서는 영문·숫자로 된 긴 문자열이 보입니다. (예시 화면의 목적은 "OpenLMS 가이드")</figcaption>
+    </figure>
+  </section>
+
+  <section class="step">
+    <h2><span class="num">05</span>OpenLMS에 로그인</h2>
+    <p>터미널에서 <code>openlms login</code>을 실행하고, 학교 Canvas 주소와 방금 복사한 토큰을 붙여 넣습니다.</p>
+<pre><span class="prompt">$</span> npm install -g openlms
+<span class="prompt">$</span> openlms login
+<span class="dim">LMS base URL (예: https://canvas.ssu.ac.kr):</span> https://canvas.knu.ac.kr
+<span class="dim">Access token:</span> <span class="dim">(붙여 넣어도 화면에 표시되지 않습니다)</span></pre>
+    <p>OpenLMS는 <code>/api/v1/users/self</code>로 토큰을 확인한 뒤 주소와 토큰을 OS 키체인에 저장합니다. 이어서 <code>openlms sync</code>로 강의자료를 받으세요.</p>
+  </section>
+
+  <section class="step">
+    <h2><span class="num">!</span>토큰 다루기</h2>
+    <div class="note"><p>액세스 토큰은 비밀번호와 같습니다. 이 토큰이 있으면 누구든 여러분 계정으로 Canvas API를 쓸 수 있습니다.</p></div>
+    <ul>
+      <li>채팅·메일·스크린샷·GitHub 등에 붙여 넣지 마세요.</li>
+      <li>더 이상 쓰지 않거나 유출이 의심되면 <b class="ui">설정 → 승인된 통합</b>에서 해당 토큰 행의 휴지통 아이콘으로 삭제하세요. 삭제하면 즉시 쓸 수 없습니다.</li>
+      <li>OpenLMS에서 지우려면 <code>openlms logout</code>을 실행하세요.</li>
+      <li>학교마다 메뉴 이름이나 위치가 조금 다를 수 있습니다. 그래도 <b class="ui">계정 → 설정 → 승인된 통합</b>의 흐름은 같습니다.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
