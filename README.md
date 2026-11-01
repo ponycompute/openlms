@@ -32,7 +32,7 @@ npm install -g openlms
 소스에서 설치:
 
 ```bash
-git clone <this repo> && cd openlms
+git clone https://github.com/ponycompute/openlms.git && cd openlms
 npm install && npm run build && npm link
 ```
 

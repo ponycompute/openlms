@@ -2,6 +2,14 @@
   "name": "openlms",
   "version": "0.1.0",
   "description": "OpenLMS — local Canvas/LearningX LMS sync + search with CLI, TUI and MCP (stdio) server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ponycompute/openlms.git"
+  },
+  "homepage": "https://github.com/ponycompute/openlms#readme",
+  "bugs": {
+    "url": "https://github.com/ponycompute/openlms/issues"
+  },
   "type": "module",
   "bin": {
     "openlms": "dist/cli.js"
