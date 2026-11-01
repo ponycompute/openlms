@@ -3,7 +3,10 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  # Publishes the version in package.json from the chosen branch or tag.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -22,3 +25,44 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Ships a release to npm: push a v* tag (`npm version patch && git push
+  # --follow-tags`) or run the workflow by hand. Trusted publishing: npm trusts
+  # this workflow through GitHub OIDC, so no token or OTP is involved. Needs
+  # npm 11.5.1+ and this workflow registered as a trusted publisher (allowed
+  # to publish) in the package settings on npmjs.com.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+      - name: Skip if this version is already on npm
+        id: check
+        run: |
+          spec="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
+          if npm view "$spec" version >/dev/null 2>&1; then
+            echo "$spec is already published; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.check.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.check.outputs.skip != 'true'
+        run: npm install -g npm@^11.5.1
+      - if: steps.check.outputs.skip != 'true'
+        run: npm publish --access public
