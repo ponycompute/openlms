@@ -42,6 +42,8 @@ npm install && npm run build && npm link
 
 ## 시작하기
 
+처음이라면 Node.js 설치부터 Claude Desktop 연결까지 안내하는 [시작하기 가이드](https://ponycompute.github.io/openlms/guide/getting-started/)를 따라 하세요.
+
 ### 1. 토큰 발급
 
 LMS 웹 → **계정 → 설정 → 승인된 통합 → `+ 새 액세스 토큰`** 에서 토큰을 만듭니다. (학교에 따라 메뉴 이름이 조금 다를 수 있습니다.) 화면별 안내: [Canvas 액세스 토큰 발급 가이드](https://ponycompute.github.io/openlms/guide/generate-accesstoken/)

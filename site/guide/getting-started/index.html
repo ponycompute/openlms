@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenLMS 시작하기</title>
+<meta name="description" content="Node.js 설치부터 Claude Desktop 연결까지, 처음 쓰는 학생을 위한 OpenLMS 설치 가이드">
+<style>
+:root {
+  --bg: #FCFCFB;
+  --text: #1C1D1F;
+  --text-2: #5B5E63;
+  --line: #E4E4E1;
+  --code-bg: #F2F2EF;
+  --term-bg: #1C1D1F;
+  --term-text: #E6E6E3;
+  --term-dim: #8E9196;
+  --link: #1F5FBF;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161718;
+    --text: #E8E8E6;
+    --text-2: #A2A5AA;
+    --line: #2C2E31;
+    --code-bg: #232528;
+    --term-bg: #0F1011;
+    --link: #7FAEF5;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161718;
+  --text: #E8E8E6;
+  --text-2: #A2A5AA;
+  --line: #2C2E31;
+  --code-bg: #232528;
+  --term-bg: #0F1011;
+  --link: #7FAEF5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); text-underline-offset: 3px; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { font-size: .88em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+
+.top {
+  border-bottom: 1px solid var(--line);
+}
+.top-inner, main { max-width: 760px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+.top-inner { height: 56px; display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+.top-inner .name { font-weight: 600; }
+.top-inner a.repo { color: var(--text-2); text-decoration: none; }
+.top-inner a.repo:hover { color: var(--text); text-decoration: underline; }
+
+main { padding-top: 48px; padding-bottom: 96px; }
+h1 { font-size: 32px; line-height: 1.3; letter-spacing: -0.02em; margin: 0 0 12px; }
+.lead { color: var(--text-2); margin: 0 0 56px; max-width: 60ch; }
+
+ol.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+ol.steps > li { counter-increment: step; margin: 0 0 64px; }
+ol.steps h2 {
+  font-size: 20px; line-height: 1.4; letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+ol.steps h2::before { content: counter(step) ". "; color: var(--text-2); font-weight: 500; }
+ol.steps p { margin: 0 0 20px; max-width: 65ch; }
+ol.steps ul { margin: 0 0 20px; padding-left: 20px; max-width: 65ch; }
+ol.steps ul li { margin-bottom: 8px; }
+.shot { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.small { font-size: 14px; color: var(--text-2); margin: 10px 0 0 !important; }
+b.ui { font-weight: 600; }
+
+.code { position: relative; margin: 0 0 20px; }
+pre {
+  background: var(--term-bg); color: var(--term-text);
+  font-size: 14px; line-height: 1.65;
+  padding: 16px 18px; border-radius: 6px; overflow-x: auto; margin: 0;
+}
+.code pre { padding-right: 72px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.copy {
+  position: absolute; top: 10px; right: 10px;
+  font: 13px/1 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  color: var(--term-text); background: #3A3C40; border: 0; border-radius: 4px;
+  padding: 7px 10px; cursor: pointer;
+}
+.copy:hover { background: #4A4D52; }
+
+section.manage { border-top: 1px solid var(--line); padding-top: 40px; margin-bottom: 48px; }
+section.manage h2 { font-size: 20px; margin: 0 0 12px; }
+section.manage h3 { font-size: 16px; margin: 24px 0 4px; }
+section.manage p { margin: 0 0 16px; max-width: 65ch; }
+section.manage ul { margin: 0; padding-left: 20px; max-width: 65ch; }
+section.manage li { margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  main { padding-top: 32px; }
+  h1 { font-size: 26px; }
+  ol.steps > li { margin-bottom: 48px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <span class="name">OpenLMS</span>
+    <a class="repo" href="https://github.com/ponycompute/openlms">GitHub</a>
+  </div>
+</header>
+
+<main>
+  <h1>OpenLMS 시작하기</h1>
+  <p class="lead">코딩을 몰라도 순서대로 따라 하면 됩니다. 강의자료를 내 컴퓨터로 받고, Claude Desktop에서 강의자료에 관해 질문할 수 있게 만듭니다. 명령어는 복사해서 붙여 넣으면 됩니다.</p>
+
+  <ol class="steps">
+    <li>
+      <h2>Node.js 설치</h2>
+      <p>OpenLMS를 실행하는 데 필요한 프로그램입니다. <a href="https://nodejs.org/ko/download">Node.js 다운로드 페이지</a> 맨 위에서 버전을 <b class="ui">v24 (LTS)</b>로 고릅니다. 페이지에 보이는 명령어는 쓰지 않아도 됩니다. 조금 아래의 <b class="ui">설치 프로그램</b> 버튼(Mac은 <code>.pkg</code>, Windows는 <code>.msi</code>)으로 파일을 받아 실행하고, 설치 화면은 기본값 그대로 넘기면 됩니다.</p>
+      <p>이미 설치했다면 22.13 이상인지만 확인하세요. 다음 단계에서 터미널을 열어 <code>node --version</code>으로 볼 수 있습니다.</p>
+    </li>
+
+    <li>
+      <h2>터미널을 열고 OpenLMS 설치</h2>
+      <ul>
+        <li><b class="ui">Mac:</b> <code>Cmd + Space</code>를 누르고 <b class="ui">터미널</b>을 검색해 엽니다.</li>
+        <li><b class="ui">Windows:</b> 시작 메뉴에서 <b class="ui">명령 프롬프트</b>를 검색해 엽니다.</li>
+      </ul>
+      <p>아래 명령을 붙여 넣고 Enter를 누릅니다. 1분 안팎 걸립니다.</p>
+      <div class="code"><pre>npm install -g openlms</pre></div>
+      <p class="small">이 터미널 창은 닫지 말고 계속 쓰세요.</p>
+    </li>
+
+    <li>
+      <h2>Canvas 토큰 발급</h2>
+      <p>OpenLMS가 내 계정으로 LMS를 읽을 때 쓰는 열쇠입니다. <a href="../generate-accesstoken/">토큰 발급 가이드</a>의 1~4단계를 따라 토큰을 복사해 두세요.</p>
+      <p>토큰은 비밀번호처럼 다루세요. 다른 사람에게 보내거나 게시판에 올리면 안 됩니다.</p>
+    </li>
+
+    <li>
+      <h2>로그인</h2>
+      <div class="code"><pre>openlms login</pre></div>
+      <p>두 가지를 차례로 묻습니다.</p>
+      <ul>
+        <li><b class="ui">LMS base URL:</b> 학교 LMS의 주소입니다. 브라우저 주소창에서 <code>https://canvas.학교.ac.kr</code>처럼 첫 번째 <code>/</code> 앞까지만 입력합니다.</li>
+        <li><b class="ui">Access token:</b> 복사한 토큰을 붙여 넣습니다. 입력해도 화면에 보이지 않는 것이 정상이니, 붙여 넣고 그대로 Enter를 누르세요.</li>
+      </ul>
+      <p>토큰은 파일이 아니라 운영체제의 키체인에 저장됩니다.</p>
+    </li>
+
+    <li>
+      <h2>강의자료 받기</h2>
+      <div class="code"><pre>openlms sync --learningx</pre></div>
+      <p>과목, 강의자료, 과제, 공지, 게시판을 내 컴퓨터로 받습니다. 처음에는 자료 양에 따라 몇 분 걸릴 수 있습니다. 다음부터는 바뀐 파일만 받습니다.</p>
+      <p>끝나면 터미널에서 바로 볼 수 있습니다. 나올 때는 <code>q</code>를 누릅니다.</p>
+      <div class="code"><pre>openlms tui</pre></div>
+      <img class="shot" src="images/tui-todo.jpg" width="1400" height="820" loading="lazy" alt="OpenLMS 터미널 화면. 과제가 마감일 순서로 나열되어 있다">
+      <p class="small">샘플 데이터 화면입니다.</p>
+    </li>
+
+    <li>
+      <h2>Claude Desktop에 연결</h2>
+      <p><a href="https://claude.ai/download">Claude Desktop</a>을 설치하고 로그인합니다. 그다음 터미널에 아래 명령을 붙여 넣으면 내 컴퓨터에 맞는 설정이 출력됩니다.</p>
+      <div class="code"><pre>node -e "console.log(JSON.stringify({mcpServers:{openlms:{command:process.execPath,args:[require('path').join(require('child_process').execSync('npm root -g').toString().trim(),'openlms','dist','cli.js'),'mcp']}}},null,2))"</pre></div>
+      <p>출력된 내용을 처음의 <code>{</code>부터 마지막 <code>}</code>까지 복사한 뒤, 설정 파일에 넣습니다.</p>
+      <ul>
+        <li>Claude Desktop의 메뉴에서 <b class="ui">Settings… → Developer → Edit Config</b>를 누릅니다. 설정 파일 <code>claude_desktop_config.json</code>의 위치가 열립니다.</li>
+        <li>그 파일을 메모장이나 텍스트 편집기로 엽니다.</li>
+        <li>파일이 비어 있거나 <code>{}</code>뿐이면 전체를 복사한 내용으로 바꾸고 저장합니다. 다른 내용이 있으면 아래 <a href="#existing-config">설정 파일에 이미 내용이 있을 때</a>를 보세요.</li>
+        <li>Claude Desktop을 <b class="ui">완전히 종료</b>했다가 다시 엽니다. 창만 닫으면 적용되지 않습니다.</li>
+      </ul>
+    </li>
+
+    <li>
+      <h2>질문해 보기</h2>
+      <p>새 채팅을 열고 물어보세요. 처음에는 도구 사용을 승인하는 창이 뜰 수 있으니 허용하면 됩니다.</p>
+      <div class="code"><pre>이번 주 마감 과제 정리하고, 과제에 필요한 개념이 어느 강의자료에 있는지 찾아줘</pre></div>
+      <img class="shot" src="images/claude-answer.jpg" width="1200" height="1248" loading="lazy" alt="Claude가 마감 과제를 순서대로 정리하고 관련 강의자료 파일과 슬라이드 번호를 알려 준 답변">
+      <p class="small">샘플 데이터로 받은 답변입니다.</p>
+    </li>
+  </ol>
+
+  <section class="manage">
+    <h2>꼭 알아 두세요</h2>
+    <ul>
+      <li>동기화와 검색은 내 컴퓨터에서 이루어지지만, AI에게 질문하면 답변에 필요한 자료 내용이 그 AI 서비스로 전달됩니다.</li>
+      <li>받은 강의자료는 개인 학습용으로만 쓰고 다시 배포하지 마세요.</li>
+      <li>OpenLMS는 학교나 Canvas의 공식 서비스가 아닙니다. 학교 이용 약관은 직접 확인해 주세요.</li>
+      <li>스캔본 PDF와 영상의 내용은 검색되지 않습니다.</li>
+    </ul>
+  </section>
+
+  <section class="manage">
+    <h2>막혔을 때</h2>
+
+    <h3><code>npm</code>이나 <code>openlms</code>를 찾을 수 없다고 나올 때</h3>
+    <p>터미널 창을 닫고 새로 연 뒤 다시 실행하세요. 그래도 안 되면 Node.js를 다시 설치해 보세요.</p>
+
+    <h3>Mac에서 <code>EACCES</code> 또는 permission denied가 나올 때</h3>
+    <p>아래 명령으로 설치하세요. Mac 로그인 비밀번호를 묻는데, 입력해도 화면에 보이지 않는 것이 정상입니다.</p>
+    <div class="code"><pre>sudo npm install -g openlms</pre></div>
+
+    <h3>Windows에서 "스크립트를 실행할 수 없으므로"가 나올 때</h3>
+    <p>PowerShell에서 실행한 경우입니다. <b class="ui">명령 프롬프트</b>를 새로 열어 다시 실행하세요.</p>
+
+    <h3 id="existing-config">설정 파일에 이미 내용이 있을 때</h3>
+    <p>기존 내용을 지우지 말고, 출력된 <code>"openlms": { … }</code> 부분만 <code>"mcpServers"</code> 안에 추가합니다. <code>"mcpServers"</code>가 없다면 맨 바깥 <code>{ }</code> 안에 항목으로 넣습니다. 항목 사이에는 쉼표가 필요합니다.</p>
+    <div class="code"><pre>{
+  "기존 항목": "그대로 둡니다",
+  "mcpServers": {
+    "openlms": { 출력된 command와 args }
+  }
+}</pre></div>
+
+    <h3>Claude가 강의자료를 못 찾을 때</h3>
+    <ul>
+      <li>쉼표나 괄호가 빠지면 설정 전체가 읽히지 않습니다. 설정 파일을 다시 확인하세요.</li>
+      <li>Claude Desktop을 완전히 종료했다가 다시 열었는지 확인하세요.</li>
+      <li>채팅 입력창의 <b class="ui">+</b> 메뉴에서 <b class="ui">Connectors</b>를 열어 <code>openlms</code>가 있는지 확인하세요.</li>
+      <li>터미널에서 <code>openlms status</code>를 실행해 로그인과 파일 수를 확인하세요.</li>
+    </ul>
+
+    <h3>로그인에서 오류가 날 때</h3>
+    <p>주소가 <code>https://</code>로 시작하고 학교 LMS 주소가 맞는지, 토큰을 끝까지 복사했는지 확인하세요. 학교가 토큰 발급을 막아 둔 경우에는 사용할 수 없습니다.</p>
+
+    <h3>그래도 안 될 때</h3>
+    <p><a href="https://github.com/ponycompute/openlms/issues">GitHub Issues</a>에 어느 단계에서 어떤 메시지가 나왔는지 남겨 주세요. 토큰과 개인정보는 지우고 올려 주세요.</p>
+  </section>
+
+  <section class="manage">
+    <h2>평소에 쓰기</h2>
+    <ul>
+      <li>새 자료 받기: <code>openlms sync --learningx</code></li>
+      <li>새 버전으로 업데이트: <code>npm install -g openlms@latest</code></li>
+      <li>저장된 토큰 지우기: <code>openlms logout</code></li>
+      <li>Claude Desktop 말고 Cursor나 Claude Code에 연결하려면 <a href="https://github.com/ponycompute/openlms#mcp-툴">README</a>를 보세요.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+document.querySelectorAll(".code").forEach((block) => {
+  const button = document.createElement("button");
+  button.className = "copy";
+  button.type = "button";
+  button.textContent = "복사";
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(block.querySelector("pre").textContent);
+      button.textContent = "복사됨";
+    } catch {
+      button.textContent = "직접 복사";
+    }
+    setTimeout(() => { button.textContent = "복사"; }, 1500);
+  });
+  block.append(button);
+});
+</script>
+</body>
+</html>
