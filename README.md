@@ -6,6 +6,8 @@
 
 ![OpenLMS TUI: 동기화, 강의자료 읽기, 과제·공지, 할 일, 검색](assets/tui-demo.gif)
 
+![Claude Desktop에서 OpenLMS MCP로 이번 주 마감 과제와 관련 강의자료를 찾는 모습 (샘플 데이터)](assets/mcp-demo.gif)
+
 - 활성 과목의 파일을 `~/.lms/`에 **증분 다운로드**
 - PDF / PPTX / DOCX / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
 - 과제(마감순), 공지 캐시
