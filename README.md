@@ -9,7 +9,7 @@
 ![Claude Desktop에서 OpenLMS MCP로 이번 주 마감 과제와 관련 강의자료를 찾는 모습 (샘플 데이터)](assets/mcp-demo.gif)
 
 - 활성 과목의 파일을 `~/.lms/`에 **증분 다운로드**
-- PDF / PPTX / DOCX / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
+- PDF / PPTX / DOCX / Jupyter 노트북(.ipynb) / 텍스트에서 **텍스트 추출** → SQLite **FTS5(trigram)** 인덱스 (한국어 부분 일치 검색 지원)
 - 과제(마감순), 공지 캐시
 - MCP 툴은 **로컬 캐시 우선**, 캐시에 없을 때만 LMS API 호출
 
@@ -81,7 +81,7 @@ Canvas의 문서화된 `sessionless_launch` API로 LearningX를 실행해 Learni
 `--learningx`로 받을 수 없는 자료(PPTX 등)는 브라우저에서 받아 직접 가져올 수 있습니다:
 
 ```bash
-openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하위까지, PDF/PPTX/DOCX/텍스트만
+openlms import ~/Downloads/데이터베이스 --course 12345   # 폴더는 하위까지, PDF/PPTX/DOCX/ipynb/텍스트만
 ```
 
 가져온 파일은 음수 ID로 표시되고, Canvas 동기화로 지워지지 않습니다. 빼려면 `openlms unimport <fileId>`.
@@ -208,7 +208,7 @@ src/
 ├── canvas/   # REST 클라이언트(레이트리밋·백오프·페이지네이션), API 매핑
 ├── auth/     # OS 키체인 자격 증명
 ├── store/    # SQLite 캐시 + FTS5
-├── extract/  # PDF/PPTX/DOCX/HTML 텍스트 추출
+├── extract/  # PDF/PPTX/DOCX/ipynb/HTML 텍스트 추출
 ├── learningx/ # LearningX 실행(sessionless launch) + PDF 수집 (opt-in)
 ├── lms.ts    # 캐시 우선 서비스 + 증분 sync
 ├── cli/      # 표 출력, 프롬프트

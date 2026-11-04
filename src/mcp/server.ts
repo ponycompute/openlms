@@ -78,7 +78,7 @@ export function createMcpServer(lms: Lms): McpServer {
     {
       title: "Read material text",
       description:
-        "Return the extracted text of a course file (PDF/PPTX/DOCX/text). Long texts are paged: pass offset to continue where the previous call stopped.",
+        "Return the extracted text of a course file (PDF/PPTX/DOCX/notebook/text). Long texts are paged: pass offset to continue where the previous call stopped.",
       inputSchema: {
         file_id: z.number().int().describe("File ID from list_materials or search_materials"),
         offset: z.number().int().min(0).optional().describe("Character offset (default 0)"),

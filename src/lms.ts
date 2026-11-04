@@ -660,6 +660,26 @@ export class Lms {
     return row;
   }
 
+  /**
+   * Earlier versions indexed notebooks as raw JSON, and sync skips unchanged
+   * files, so those would stay raw forever. Re-extracts them from the local copy.
+   */
+  private async reindexRawNotebooks(): Promise<void> {
+    for (const file of this.store.files()) {
+      const isRaw = extractKind(file.name) === "notebook" && this.store.text(file.id)?.trimStart().startsWith("{");
+      if (!isRaw || !existsSync(file.localPath)) {
+        continue;
+      }
+      try {
+        const text = await extractText("notebook", new Uint8Array(await readFile(file.localPath)));
+        this.store.setText(file.id, file.courseId, file.name, text);
+        this.store.upsertFile({ ...file, textStatus: isEffectivelyEmpty(text) ? "empty" : "ok" });
+      } catch {
+        // Not valid notebook JSON: the raw text is still the best we have.
+      }
+    }
+  }
+
   /** Full incremental sync of active courses into ~/.lms. */
   async sync(opts: SyncOptions = {}): Promise<SyncReport> {
     const release = this.acquireSyncLock();
@@ -717,6 +737,7 @@ export class Lms {
       announcements: 0,
       errors: [],
     };
+    await this.reindexRawNotebooks();
     log("Fetching active courses…");
     let courses = await this.refreshCourses();
     if (opts.courseId) {

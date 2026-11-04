@@ -1,10 +1,10 @@
 // Text extraction for course materials: PDF (unpdf/pdf.js), PPTX and DOCX
-// (zip + OOXML text runs), plus plain-text formats.
+// (zip + OOXML text runs), Jupyter notebooks, plus plain-text formats.
 import { extname } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import { extractText as extractPdfText, getDocumentProxy } from "unpdf";
 
-export type ExtractKind = "pdf" | "pptx" | "docx" | "text" | "html";
+export type ExtractKind = "pdf" | "pptx" | "docx" | "notebook" | "text" | "html";
 
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".tsv", ".json", ".py", ".c", ".cpp", ".h", ".java", ".js", ".ts", ".go", ".rs", ".sql", ".tex"]);
 
@@ -18,6 +18,10 @@ export function extractKind(name: string, contentType = ""): ExtractKind | undef
   }
   if (ext === ".docx" || contentType.includes("wordprocessingml")) {
     return "docx";
+  }
+  // Before the text/* check: Canvas often serves notebooks as text/plain.
+  if (ext === ".ipynb") {
+    return "notebook";
   }
   if (ext === ".html" || ext === ".htm") {
     return "html";
@@ -108,6 +112,42 @@ function extractDocx(data: Uint8Array): string {
   return xml ? xmlRuns(strFromU8(xml), "w:t") : "";
 }
 
+interface NotebookCell {
+  cell_type?: string;
+  source?: string | string[];
+  input?: string | string[]; // nbformat 3
+}
+
+interface Notebook {
+  cells?: NotebookCell[];
+  worksheets?: { cells?: NotebookCell[] }[]; // nbformat 3
+  metadata?: { language_info?: { name?: string }; kernelspec?: { language?: string } };
+}
+
+/** Pictures pasted into Colab markdown are inlined as base64, up to tens of KB per image. */
+const INLINE_IMAGE = /!\[[^\]]*\]\(data:[^)]*\)|data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+/g;
+
+/** Keeps only the cells people wrote: metadata, outputs and inline images are dropped. */
+function extractNotebook(data: Uint8Array): string {
+  const notebook = JSON.parse(new TextDecoder().decode(data)) as Notebook;
+  const cells = notebook.cells ?? notebook.worksheets?.flatMap((sheet) => sheet.cells ?? []);
+  if (!Array.isArray(cells)) {
+    throw new Error("Not a Jupyter notebook");
+  }
+  const language = notebook.metadata?.language_info?.name ?? notebook.metadata?.kernelspec?.language ?? "";
+  const parts: string[] = [];
+  cells.forEach((cell, i) => {
+    const raw = cell.source ?? cell.input ?? "";
+    const source = (Array.isArray(raw) ? raw.join("") : raw).replace(INLINE_IMAGE, "").trim();
+    if (!source) {
+      return;
+    }
+    const body = cell.cell_type === "code" ? `\`\`\`${language}\n${source}\n\`\`\`` : source;
+    parts.push(`## Cell ${i + 1}\n${body}`);
+  });
+  return parts.join("\n\n");
+}
+
 async function extractPdf(data: Uint8Array): Promise<string> {
   // verbosity 0: only errors, not pdf.js font warnings on stdout.
   const pdf = await getDocumentProxy(data, { verbosity: 0 });
@@ -130,6 +170,8 @@ export async function extractText(kind: ExtractKind, data: Uint8Array): Promise<
       return extractPptx(data);
     case "docx":
       return extractDocx(data);
+    case "notebook":
+      return extractNotebook(data);
     case "html":
       return htmlToText(new TextDecoder().decode(data));
     case "text":
@@ -139,5 +181,5 @@ export async function extractText(kind: ExtractKind, data: Uint8Array): Promise<
 
 /** True when extracted text carries no real content (e.g. scanned PDF). */
 export function isEffectivelyEmpty(text: string): boolean {
-  return text.replace(/## (Page|Slide) \d+/g, "").replace(/\s+/g, "").length < 10;
+  return text.replace(/## (Page|Slide|Cell) \d+/g, "").replace(/\s+/g, "").length < 10;
 }

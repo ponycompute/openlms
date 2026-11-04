@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CredentialStore } from "../src/auth/credentials.js";
 import { CanvasClient, CanvasError, nextLink } from "../src/canvas/client.js";
+import { extractKind, extractText } from "../src/extract/extract.js";
 import { parseLaunchForm } from "../src/learningx/learningx.js";
 import { learningxFileId, Lms } from "../src/lms.js";
 import { createMcpServer } from "../src/mcp/server.js";
@@ -356,6 +357,63 @@ describe("learningx", () => {
     assert.equal(report.removed, 1);
     assert.equal(lms.store.file(202), undefined);
     assert.equal(lms.search("중위 순회").length, 0);
+  });
+});
+
+describe("jupyter notebooks", () => {
+  const notebook = {
+    nbformat: 4,
+    metadata: { language_info: { name: "python" }, colab: { provenance: [] } },
+    cells: [
+      { cell_type: "markdown", source: ["### 역전파\n", "연쇄 법칙으로 계산", "![image.png](data:image/png;base64,iVBORw0KGgo=)"], metadata: { id: "abc" } },
+      { cell_type: "code", source: "loss.backward()", execution_count: 1, outputs: [{ data: { "image/png": "iVBORw0KGgo" } }] },
+      { cell_type: "code", source: [] },
+    ],
+  };
+  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+
+  it("is detected by extension, even when served as text/plain", () => {
+    assert.equal(extractKind("lab.ipynb", "text/plain"), "notebook");
+  });
+
+  it("keeps cell sources and drops metadata, outputs and inline images", async () => {
+    const text = await extractText("notebook", encode(notebook));
+    assert.equal(text, "## Cell 1\n### 역전파\n연쇄 법칙으로 계산\n\n## Cell 2\n\`\`\`python\nloss.backward()\n\`\`\`");
+  });
+
+  it("reads nbformat 3 worksheets", async () => {
+    const text = await extractText("notebook", encode({ worksheets: [{ cells: [{ cell_type: "code", input: ["x = 1"] }] }] }));
+    assert.equal(text, "## Cell 1\n\`\`\`\nx = 1\n\`\`\`");
+  });
+
+  it("rejects JSON that is not a notebook", async () => {
+    await assert.rejects(extractText("notebook", encode({ hello: "world" })));
+  });
+
+  it("re-indexes notebooks a previous version stored as raw JSON", async () => {
+    const canvas = await startFakeCanvas();
+    const home = mkdtempSync(join(tmpdir(), "lms-notebook-"));
+    const lms = new Lms({ home, credentials: memoryCredentials(canvas.baseUrl), client: noSleep });
+    try {
+      const path = join(home, "lab.ipynb");
+      writeFileSync(path, JSON.stringify(notebook));
+      const { imported } = await lms.importFiles(1, [path]);
+      const file = imported[0]!;
+      assert.match(lms.store.text(file.id)!, /^## Cell 1/);
+
+      lms.store.setText(file.id, file.courseId, file.name, JSON.stringify(notebook));
+      assert.equal(lms.search("provenance").length, 1);
+
+      await lms.sync();
+      assert.match(lms.store.text(file.id)!, /^## Cell 1/);
+      assert.equal(lms.store.file(file.id)?.textStatus, "ok");
+      assert.equal(lms.search("provenance").length, 0);
+      assert.equal(lms.search("backward").length, 1);
+    } finally {
+      lms.close();
+      await canvas.close();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 
